@@ -1,0 +1,313 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isTimestampOrNull(value) {
+      return value == null || value is timestamp;
+    }
+
+    function isStringOrNull(value) {
+      return value == null || value is string;
+    }
+
+    function isNumber(value) {
+      return value is int || value is float;
+    }
+
+    function hasValidUserSchema(data) {
+      return data.keys().hasAll([
+          'uid',
+          'email',
+          'displayName',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid',
+          'email',
+          'displayName',
+          'photoUrl',
+          'createdAt',
+          'updatedAt',
+          'lastLoginAt',
+          'isActive'
+        ]) &&
+        data.uid is string &&
+        data.email is string &&
+        data.displayName is string &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        isStringOrNull(data.photoUrl) &&
+        isTimestampOrNull(data.lastLoginAt) &&
+        (data.isActive == null || data.isActive is bool);
+    }
+
+    function hasValidTransactionSchema(data) {
+      return data.keys().hasAll([
+          'userId',
+          'type',
+          'amount',
+          'categoryId',
+          'occurredAt',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'type',
+          'amount',
+          'categoryId',
+          'title',
+          'note',
+          'occurredAt',
+          'createdAt',
+          'updatedAt',
+          'jarId',
+          'source',
+          'currency'
+        ]) &&
+        data.userId is string &&
+        (data.type == 'income' || data.type == 'expense') &&
+        isNumber(data.amount) &&
+        data.amount > 0 &&
+        data.categoryId is string &&
+        data.occurredAt is timestamp &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        isStringOrNull(data.title) &&
+        isStringOrNull(data.note) &&
+        isStringOrNull(data.jarId) &&
+        isStringOrNull(data.source) &&
+        isStringOrNull(data.currency);
+    }
+
+    function hasValidCategorySchema(data) {
+      return data.keys().hasAll([
+          'userId',
+          'name',
+          'type',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'name',
+          'type',
+          'icon',
+          'color',
+          'isDefault',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.userId is string &&
+        data.name is string &&
+        (data.type == 'income' || data.type == 'expense') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        isStringOrNull(data.icon) &&
+        isStringOrNull(data.color) &&
+        (data.isDefault == null || data.isDefault is bool);
+    }
+
+    function hasValidJarSchema(data) {
+      return data.keys().hasAll([
+          'userId',
+          'name',
+          'balance',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'name',
+          'targetAmount',
+          'balance',
+          'description',
+          'createdAt',
+          'updatedAt',
+          'isArchived'
+        ]) &&
+        data.userId is string &&
+        data.name is string &&
+        isNumber(data.balance) &&
+        data.balance >= 0 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (data.targetAmount == null || (isNumber(data.targetAmount) && data.targetAmount >= 0)) &&
+        isStringOrNull(data.description) &&
+        (data.isArchived == null || data.isArchived is bool);
+    }
+
+    function hasValidChatSchema(data) {
+      return data.keys().hasAll([
+          'userId',
+          'message',
+          'role',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'message',
+          'role',
+          'intent',
+          'transactionDraft',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.userId is string &&
+        data.message is string &&
+        (data.role == 'user' || data.role == 'assistant' || data.role == 'system') &&
+        data.createdAt is timestamp &&
+        isTimestampOrNull(data.updatedAt) &&
+        isStringOrNull(data.intent) &&
+        (data.transactionDraft == null || data.transactionDraft is map);
+    }
+
+    function hasValidReceiptSchema(data) {
+      return data.keys().hasAll([
+          'userId',
+          'imageUrl',
+          'status',
+          'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId',
+          'imageUrl',
+          'status',
+          'items',
+          'totalAmount',
+          'rawText',
+          'createdAt',
+          'updatedAt'
+        ]) &&
+        data.userId is string &&
+        data.imageUrl is string &&
+        (data.status == 'pending' || data.status == 'processed' || data.status == 'failed') &&
+        data.createdAt is timestamp &&
+        isTimestampOrNull(data.updatedAt) &&
+        (data.items == null || data.items is list) &&
+        (data.totalAmount == null || (isNumber(data.totalAmount) && data.totalAmount >= 0)) &&
+        isStringOrNull(data.rawText);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+        request.resource.data.uid == request.auth.uid &&
+        hasValidUserSchema(request.resource.data);
+
+      allow update: if isOwner(userId) &&
+        request.resource.data.uid == resource.data.uid &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidUserSchema(request.resource.data);
+
+      allow delete: if false;
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        hasValidTransactionSchema(request.resource.data);
+
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidTransactionSchema(request.resource.data);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /categories/{categoryId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        hasValidCategorySchema(request.resource.data);
+
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidCategorySchema(request.resource.data);
+
+      allow delete: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        resource.data.isDefault != true;
+    }
+
+    match /jars/{jarId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        hasValidJarSchema(request.resource.data);
+
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidJarSchema(request.resource.data);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        hasValidChatSchema(request.resource.data);
+
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidChatSchema(request.resource.data);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() &&
+          get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid;
+
+        allow create: if isSignedIn() &&
+          request.resource.data.userId == request.auth.uid &&
+          hasValidChatSchema(request.resource.data);
+
+        allow update, delete: if false;
+      }
+    }
+
+    match /receipts/{receiptId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        hasValidReceiptSchema(request.resource.data);
+
+      allow update: if isSignedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.createdAt == resource.data.createdAt &&
+        hasValidReceiptSchema(request.resource.data);
+
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
