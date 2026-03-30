@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import '../../domain/entities/transaction.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../models/transaction_model.dart';
+import '../datasources/remote/jar_remote_datasource.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' show FirebaseFirestore;
 
 class TransactionRepositoryImpl implements TransactionRepository {
   final firestore.FirebaseFirestore _firestore = firestore.FirebaseFirestore.instance;
@@ -22,23 +24,18 @@ class TransactionRepositoryImpl implements TransactionRepository {
 
   @override
   Future<void> addTransaction(String userId, Transaction transaction) async {
-    final now = DateTime.now();
-    final model = TransactionModel(
-      id: '',
-      userId: userId,
-      title: transaction.title,
-      amount: transaction.amount,
-      occurredAt: transaction.occurredAt,
-      createdAt: now,
-      updatedAt: now,
-      categoryId: transaction.categoryId,
-      type: transaction.type,
-      note: transaction.note,
-    );
-    // Lưu vào collection gốc /transactions để khớp với Rules
-    await _firestore
-        .collection('transactions')
-        .add(model.toMap());
+    // Route transaction creation through JarRemoteDataSource so jars linked by categoryIds get updated.
+    final jarDs = JarRemoteDataSource(FirebaseFirestore.instance);
+    try {
+      await jarDs.addTransactionWithJarUpdate(userId, transaction);
+    } catch (e, st) {
+      // Provide clearer logging for runtime errors during transaction write
+      // ignore: avoid_print
+      print('Error in addTransaction -> addTransactionWithJarUpdate: $e');
+      // ignore: avoid_print
+      print(st);
+      rethrow;
+    }
   }
 
   @override

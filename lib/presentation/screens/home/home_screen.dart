@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../transaction/transaction_list_screen.dart';
+import '../jar/jar_list_screen.dart';
 import 'profile_tab.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,8 +14,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _tabs = [
-    const TransactionListScreen(), // Tab chính hiển thị giao dịch
-    const ProfileTab(), // Tab hồ sơ (nội dung cũ của bạn)
+    const TransactionListScreen(),
+    const JarListScreen(), // Thêm tab Hũ chi tiêu
+    const ProfileTab(),
   ];
 
   @override
@@ -34,6 +35,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.account_balance_wallet_outlined),
             selectedIcon: Icon(Icons.account_balance_wallet),
             label: 'Giao dịch',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.layers_outlined), // Biểu tượng cho Hũ chi tiêu
+            selectedIcon: Icon(Icons.layers),
+            label: 'Hũ chi tiêu',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

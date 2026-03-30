@@ -26,7 +26,7 @@ class TransactionModel extends Transaction {
     'updatedAt': firestore.Timestamp.fromDate(updatedAt),
 
     // 5 trường bổ sung trong hasOnly
-    'title': title ?? '',
+    'title': title,
     'note': note ?? '',
     'jarId': null,
     'source': 'mobile_app',

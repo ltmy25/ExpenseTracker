@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore;
 import '../../domain/entities/category.dart';
-import '../../domain/entities/transaction.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../models/category_model.dart';
 
