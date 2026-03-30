@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../transaction/transaction_list_screen.dart';
 import '../jar/jar_list_screen.dart';
 import 'profile_tab.dart';
+import 'dashboard_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -14,8 +15,9 @@ class _HomeScreenState extends State<HomeScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _tabs = [
+    const DashboardTab(),
     const TransactionListScreen(),
-    const JarListScreen(), // Thêm tab Hũ chi tiêu
+    const JarListScreen(),
     const ProfileTab(),
   ];
 
@@ -32,19 +34,24 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         destinations: const [
           NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Trang chủ',
+          ),
+          NavigationDestination(
             icon: Icon(Icons.account_balance_wallet_outlined),
             selectedIcon: Icon(Icons.account_balance_wallet),
             label: 'Giao dịch',
           ),
           NavigationDestination(
-            icon: Icon(Icons.layers_outlined), // Biểu tượng cho Hũ chi tiêu
+            icon: Icon(Icons.layers_outlined),
             selectedIcon: Icon(Icons.layers),
             label: 'Hũ chi tiêu',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),
-            label: 'Hồ sơ',
+            label: 'Cài đặt',
           ),
         ],
       ),

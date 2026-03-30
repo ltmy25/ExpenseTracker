@@ -30,14 +30,13 @@ class JarListScreen extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final jar = jars[index];
                     
-                    // Lọc giao dịch thuộc hũ này (qua jarId hoặc qua danh mục liên kết)
+                    // Lọc giao dịch thuộc hũ này
                     final jarTxs = transactions.where((tx) {
                       final matchJarId = tx.jarId == jar.id;
                       final matchCategory = jar.categoryIds?.contains(tx.categoryId) ?? false;
                       return matchJarId || matchCategory;
                     }).toList();
 
-                    // Tính toán tổng thu và tổng chi thực tế
                     double totalExpense = 0;
                     double totalIncome = 0;
                     for (final tx in jarTxs) {
@@ -52,10 +51,10 @@ class JarListScreen extends ConsumerWidget {
                     }
 
                     final double budget = jar.budgetLimit ?? 0;
-                    // SỐ DƯ = NGÂN SÁCH - CHI + THU (Theo yêu cầu của bạn)
                     final double remaining = budget - totalExpense + totalIncome;
-                    // % ĐÃ DÙNG = CHI / NGÂN SÁCH
-                    final double percentUsed = budget > 0 ? (totalExpense / budget).clamp(0.0, 1.2) : 0.0;
+                    
+                    // BỎ CLAMP 1.2 ĐỂ HIỂN THỊ CON SỐ THỰC TẾ
+                    final double percentUsed = budget > 0 ? (totalExpense / budget) : 0.0;
 
                     return Card(
                       margin: const EdgeInsets.only(bottom: 16),
@@ -116,7 +115,8 @@ class JarListScreen extends ConsumerWidget {
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text('Đã chi: ${currencyFormat.format(totalExpense)}', style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                                  Text('${(percentUsed * 100).toStringAsFixed(0)}%', 
+                                  // HIỂN THỊ PHẦN TRĂM CHÍNH XÁC (ví dụ 106.8%)
+                                  Text('${(percentUsed * 100).toStringAsFixed(1)}%', 
                                     style: TextStyle(fontWeight: FontWeight.bold, color: _getPercentColor(percentUsed))),
                                 ],
                               ),
@@ -124,6 +124,7 @@ class JarListScreen extends ConsumerWidget {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
                                 child: LinearProgressIndicator(
+                                  // Thanh tiến trình vẫn giới hạn ở 1.0 để không tràn UI
                                   value: percentUsed > 1.0 ? 1.0 : percentUsed,
                                   backgroundColor: Colors.grey[100],
                                   valueColor: AlwaysStoppedAnimation<Color>(_getPercentColor(percentUsed)),
@@ -171,9 +172,9 @@ class JarListScreen extends ConsumerWidget {
   }
 
   Color _getPercentColor(double percent) {
-    if (percent >= 1.0) return Colors.red;        // Quá mức
-    if (percent >= 0.8) return Colors.orange;     // Sắp hết
-    if (percent >= 0.5) return Colors.amber;      // Đã tiêu một nửa
-    return Colors.green;                          // An toàn
+    if (percent >= 1.0) return Colors.red;
+    if (percent >= 0.8) return Colors.orange;
+    if (percent >= 0.5) return Colors.amber;
+    return Colors.green;
   }
 }
