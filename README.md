@@ -58,7 +58,7 @@ Hũ chi tiêu & Thống kê (đã xong)
  - Xây dựng logic so sánh chi tiêu giữa các kỳ.
 
 
-Chatbot AI & Tư vấn (cần thực hiện)
+Chatbot AI & Tư vấn (đã xong)
 
 
 - Tích hợp AI API (OpenAI / Gemini) vào ứng dụng. 
@@ -67,7 +67,7 @@ Chatbot AI & Tư vấn (cần thực hiện)
  - Quản lý dữ liệu hội thoại trong bảng chats.
 
 
-Tích hợp OCR & Kiểm thử (chưa cần thực hiện)
+Tích hợp OCR & Kiểm thử (cần thực hiện)
 
 
 - Lập trình chức năng quét hóa đơn (OCR) để trích xuất tên món và giá tiền. 
