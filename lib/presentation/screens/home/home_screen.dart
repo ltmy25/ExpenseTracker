@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../chat/chat_screen.dart';
 import '../transaction/transaction_list_screen.dart';
 import '../jar/jar_list_screen.dart';
 import 'profile_tab.dart';
@@ -17,6 +18,7 @@ class _HomeScreenState extends State<HomeScreen> {
   final List<Widget> _tabs = [
     const DashboardTab(),
     const TransactionListScreen(),
+    const ChatScreen(),
     const JarListScreen(),
     const ProfileTab(),
   ];
@@ -42,6 +44,11 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: Icon(Icons.account_balance_wallet_outlined),
             selectedIcon: Icon(Icons.account_balance_wallet),
             label: 'Giao dịch',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.smart_toy_outlined),
+            selectedIcon: Icon(Icons.smart_toy),
+            label: 'Chat AI',
           ),
           NavigationDestination(
             icon: Icon(Icons.layers_outlined),
