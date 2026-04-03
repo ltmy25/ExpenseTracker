@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Hàm kiểm tra người dùng đã đăng nhập
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Hàm kiểm tra quyền sở hữu dựa trên userId
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isChatOwner(chatId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/chats/$(chatId)).data.userId == request.auth.uid;
+    }
+
+    // --- QUY TẮC CHO NGƯỜI DÙNG ---
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // --- QUY TẮC CHO GIAO DỊCH (TRANSACTIONS) ---
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      // Cho phép tạo nếu userId trong dữ liệu trùng với người đang đăng nhập
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+      // Cho phép cập nhật và xóa nếu là chủ sở hữu
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- QUY TẮC CHO DANH MỤC (CATEGORIES) ---
+    match /categories/{categoryId} {
+      // Cho phép đọc nếu là danh mục của mình hoặc danh mục mặc định của hệ thống
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || resource.data.isDefault == true);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid && resource.data.isDefault != true;
+    }
+
+    // --- QUY TẮC CHO HŨ TIỀN (JARS) ---
+    match /jars/{jarId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // --- QUY TẮC CHO AI CHAT ---
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      match /messages/{messageId} {
+        allow read: if isChatOwner(chatId);
+        allow create: if isChatOwner(chatId) && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isChatOwner(chatId);
+      }
+    }
+
+    // --- QUY TẮC CHO BIÊN LAI (RECEIPTS) ---
+    match /receipts/{receiptId} {
+      allow read, write: if isSignedIn() && (resource == null || resource.data.userId == request.auth.uid);
+    }
+
+    // Mặc định từ chối tất cả các truy cập khác
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
