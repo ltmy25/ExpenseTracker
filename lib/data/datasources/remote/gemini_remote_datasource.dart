@@ -1,8 +1,72 @@
+import 'dart:typed_data';
+
 import 'package:expensetracker/core/config/ai_local_config.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
 
 class GeminiRemoteDataSource {
   const GeminiRemoteDataSource();
+
+  Future<String> analyzeReceiptImage({
+    required Uint8List imageBytes,
+    required String mimeType,
+    required String financialContext,
+  }) async {
+    if (!AiLocalConfig.hasValidKey) {
+      throw Exception('Gemini API key chua duoc cau hinh trong ai_local_config.dart');
+    }
+
+    final prompt = '''
+Ban la tro ly quan ly chi tieu cho nguoi dung Viet Nam.
+Hay phan tich anh bill va tra ve JSON hop le DUY NHAT theo dung schema:
+{
+  "summary": "string",
+  "items": [
+    {"name": "string", "amount": 12345}
+  ]
+}
+
+Quy tac:
+- Chi tra ve JSON, khong them markdown, khong them giai thich.
+- "items" chi gom cac dong mua hang co ten + don gia.
+- Bo qua tong tien, VAT, discount, service charge, thong tin cua hang, thoi gian.
+- amount la so VND (chi so, khong dau phay).
+- summary toi da 2 cau, ngan gon, huu ich.
+
+Bo canh tai chinh:
+$financialContext
+''';
+
+    const candidateModels = <String>[
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.5-pro',
+    ];
+
+    Object? lastError;
+    for (final modelName in candidateModels) {
+      try {
+        final model = GenerativeModel(
+          model: modelName,
+          apiKey: AiLocalConfig.geminiApiKey,
+        );
+
+        final response = await model.generateContent(<Content>[
+          Content.multi(<Part>[
+            TextPart(prompt),
+            DataPart(mimeType, imageBytes),
+          ]),
+        ]);
+        final text = response.text?.trim();
+        if (text != null && text.isNotEmpty) {
+          return text;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw Exception('Khong goi duoc Gemini model (image). Loi cuoi: $lastError');
+  }
 
   Future<String> generateReply({
     required String message,

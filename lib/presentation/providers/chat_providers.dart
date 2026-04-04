@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
+import 'package:expensetracker/core/services/receipt_ocr_service.dart';
 import 'package:expensetracker/core/services/transaction_message_parser.dart';
 import 'package:expensetracker/data/datasources/remote/chat_remote_datasource.dart';
 import 'package:expensetracker/data/datasources/remote/gemini_remote_datasource.dart';
@@ -19,6 +21,10 @@ import 'package:expensetracker/presentation/providers/transaction_providers.dart
 
 final transactionMessageParserProvider = Provider<TransactionMessageParser>((ref) {
   return const TransactionMessageParser();
+});
+
+final receiptOcrServiceProvider = Provider<ReceiptOcrService>((ref) {
+  return ReceiptOcrService();
 });
 
 final chatRemoteDataSourceProvider = Provider<ChatRemoteDataSource>((ref) {
@@ -71,6 +77,11 @@ final clearChatMessagesUseCaseProvider = Provider<ClearChatMessagesUseCase>((ref
 
 final generateAiReplyUseCaseProvider = Provider<GenerateAiReplyUseCase>((ref) {
   return GenerateAiReplyUseCase(ref.watch(aiRepositoryProvider));
+});
+
+final generateAiReceiptAnalysisUseCaseProvider =
+    Provider<GenerateAiReceiptAnalysisUseCase>((ref) {
+  return GenerateAiReceiptAnalysisUseCase(ref.watch(aiRepositoryProvider));
 });
 
 final createTransactionFromDraftUseCaseProvider = Provider<CreateTransactionFromDraftUseCase>((ref) {
@@ -323,6 +334,163 @@ class ChatController extends StateNotifier<ChatState> {
         errorMessage: error.toString(),
       );
     }
+  }
+
+  Future<void> sendReceiptImage(ImageSource source) async {
+    final user = _ref.read(authStateProvider).value;
+    if (user == null) {
+      state = state.copyWith(errorMessage: 'Bạn cần đăng nhập để dùng chatbot.');
+      return;
+    }
+
+    state = state.copyWith(isSending: true, isAiTyping: false, clearError: true);
+
+    try {
+      final file = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1800,
+      );
+
+      if (file == null) {
+        state = state.copyWith(isSending: false);
+        return;
+      }
+
+      final chatId = await ensureSelectedChat();
+      if (chatId == null) {
+        state = state.copyWith(
+          isSending: false,
+          errorMessage: 'Không thể khởi tạo phiên chat.',
+        );
+        return;
+      }
+
+      await _ref.read(addChatMessageUseCaseProvider).call(
+            chatId: chatId,
+            message: ChatMessage(
+              id: 'u_img_${DateTime.now().microsecondsSinceEpoch}',
+              chatId: chatId,
+              userId: user.uid,
+              sender: ChatSender.user,
+              text: '[Đã gửi ảnh bill để phân tích]',
+              createdAt: DateTime.now(),
+            ),
+          );
+
+      state = state.copyWith(isAiTyping: true);
+
+      final imageBytes = await file.readAsBytes();
+      final aiReceipt = await _ref.read(generateAiReceiptAnalysisUseCaseProvider).call(
+            imageBytes: imageBytes,
+            mimeType: _guessMimeType(file.path),
+            financialContext: _buildFinancialContext(),
+          );
+
+      var items = aiReceipt.items
+          .map((item) => ReceiptOcrItem(name: item.name, amount: item.amount))
+          .toList();
+
+      if (items.isEmpty) {
+        items = await _ref.read(receiptOcrServiceProvider).extractItemsFromImagePath(file.path);
+      }
+
+      if (items.isEmpty) {
+        await _ref.read(addChatMessageUseCaseProvider).call(
+              chatId: chatId,
+              message: ChatMessage(
+                id: 'a_img_${DateTime.now().microsecondsSinceEpoch}',
+                chatId: chatId,
+                userId: user.uid,
+                sender: ChatSender.assistant,
+                text: 'Mình chưa đọc được món và giá từ ảnh bill. Bạn thử ảnh rõ hơn nhé.',
+                createdAt: DateTime.now(),
+              ),
+            );
+        state = state.copyWith(isSending: false, isAiTyping: false);
+        return;
+      }
+
+      final categories = await _ref.read(categoriesStreamProvider.future);
+      String? expenseCategoryId;
+      for (final category in categories) {
+        if (category.type == TransactionType.expense) {
+          expenseCategoryId = category.id;
+          break;
+        }
+      }
+
+      if (expenseCategoryId == null) {
+        state = state.copyWith(
+          isSending: false,
+          isAiTyping: false,
+          errorMessage: 'Không tìm thấy danh mục chi tiêu để lưu giao dịch.',
+        );
+        return;
+      }
+
+      final now = DateTime.now();
+      double total = 0;
+      for (final item in items) {
+        total += item.amount;
+        final tx = Transaction(
+          id: '',
+          userId: user.uid,
+          title: item.name,
+          amount: item.amount,
+          occurredAt: now,
+          createdAt: now,
+          updatedAt: now,
+          categoryId: expenseCategoryId,
+          type: TransactionType.expense,
+          note: 'Tạo tự động từ ảnh bill trong Chat AI',
+        );
+        await _ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
+      }
+
+      final topItems = items.take(3).map((e) => '- ${e.name}: ${e.amount.toStringAsFixed(0)}đ').join('\n');
+      var assistantText = aiReceipt.reply.trim();
+      if (assistantText.isEmpty || assistantText.startsWith('{') || assistantText.startsWith('[')) {
+        final aiPrompt =
+            'Nguoi dung da gui anh bill. Da tao ${items.length} giao dich chi tieu, tong ${total.toStringAsFixed(0)} VND. '
+            'Cac mon tieu bieu:\n$topItems\nHay tom tat ngan gon va dua 1 goi y tiet kiem.';
+        final aiResponse = await _ref.read(generateAiReplyUseCaseProvider).call(
+              message: aiPrompt,
+              financialContext: _buildFinancialContext(),
+            );
+        assistantText = aiResponse.reply;
+      } else {
+        assistantText = 'Đã phân tích bill và tự tạo ${items.length} giao dịch (tổng ${total.toStringAsFixed(0)}đ).\n\n$assistantText\n\n$topItems';
+      }
+
+      await _ref.read(addChatMessageUseCaseProvider).call(
+            chatId: chatId,
+            message: ChatMessage(
+              id: 'a_img_${DateTime.now().microsecondsSinceEpoch}',
+              chatId: chatId,
+              userId: user.uid,
+              sender: ChatSender.assistant,
+              text: assistantText,
+              createdAt: DateTime.now(),
+            ),
+          );
+
+      state = state.copyWith(isSending: false, isAiTyping: false, clearError: true);
+    } catch (error) {
+      state = state.copyWith(
+        isSending: false,
+        isAiTyping: false,
+        errorMessage: 'Không thể phân tích bill: $error',
+      );
+    }
+  }
+
+  String _guessMimeType(String path) {
+    final lower = path.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
   }
 
   void selectCategory(String? categoryId) {

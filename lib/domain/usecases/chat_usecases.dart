@@ -1,4 +1,7 @@
+import 'dart:typed_data';
+
 import 'package:expensetracker/domain/entities/ai_chat_response.dart';
+import 'package:expensetracker/domain/entities/ai_receipt_analysis.dart';
 import 'package:expensetracker/domain/entities/chat_message.dart';
 import 'package:expensetracker/domain/entities/chat_session.dart';
 import 'package:expensetracker/domain/entities/parsed_transaction_draft.dart';
@@ -101,6 +104,24 @@ class GenerateAiReplyUseCase {
   }) {
     return _repository.generateReply(
       message: message,
+      financialContext: financialContext,
+    );
+  }
+}
+
+class GenerateAiReceiptAnalysisUseCase {
+  const GenerateAiReceiptAnalysisUseCase(this._repository);
+
+  final AiRepository _repository;
+
+  Future<AiReceiptAnalysis> call({
+    required Uint8List imageBytes,
+    required String mimeType,
+    required String financialContext,
+  }) {
+    return _repository.analyzeReceiptImage(
+      imageBytes: imageBytes,
+      mimeType: mimeType,
       financialContext: financialContext,
     );
   }

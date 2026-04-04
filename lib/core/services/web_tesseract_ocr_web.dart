@@ -14,7 +14,7 @@ Future<String> extractTextWithWebTesseract(String imagePath) async {
   final promise = (recognize as JSFunction).callAsFunction(
     tesseractJs as JSAny,
     imagePath.toJS,
-    'eng'.toJS,
+    'eng+vie'.toJS,
   ) as JSPromise;
 
   final result = await promise.toDart;

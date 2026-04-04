@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
 import 'package:expensetracker/domain/entities/chat_message.dart';
@@ -16,6 +17,38 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
+
+  Future<void> _sendReceiptImage() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Chụp bill'),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Chọn bill từ thư viện'),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted || source == null) {
+      return;
+    }
+
+    await ref.read(chatControllerProvider.notifier).sendReceiptImage(source);
+  }
 
   Future<void> _showSessionActions() async {
     final action = await showModalBottomSheet<String>(
@@ -369,6 +402,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
               child: Row(
                 children: [
+                  IconButton.filledTonal(
+                    onPressed: _sendReceiptImage,
+                    tooltip: 'Gửi ảnh bill cho AI',
+                    icon: const Icon(Icons.image_search_outlined),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TextField(
                       key: const ValueKey('chat_input_field'),
