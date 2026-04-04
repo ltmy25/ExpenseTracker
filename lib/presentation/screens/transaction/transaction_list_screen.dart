@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
@@ -13,6 +14,19 @@ import 'widgets/transaction_item.dart';
 
 class TransactionListScreen extends ConsumerWidget {
   const TransactionListScreen({super.key});
+
+  static const List<String> _ocrNoiseKeywords = [
+    'hoa don',
+    'thanh toan',
+    'so hd',
+    'ma hd',
+    'tong tien',
+    'thanh tien',
+    'powered by',
+    'ipos',
+    'cash',
+    'change',
+  ];
 
   String _resolveCategoryName(List<Category> categories, String categoryId) {
     for (final category in categories) {
@@ -142,8 +156,8 @@ class TransactionListScreen extends ConsumerWidget {
 
     final pickedFile = await ImagePicker().pickImage(
       source: imageSource,
-      imageQuality: 85,
-      maxWidth: 1800,
+      imageQuality: 100,
+      maxWidth: 2400,
     );
 
     if (pickedFile == null) {
@@ -162,7 +176,8 @@ class TransactionListScreen extends ConsumerWidget {
 
     try {
       final service = ReceiptOcrService();
-        final items = await service.extractItemsFromImagePath(pickedFile.path);
+      final ocrResult = await service.extractDetailedFromImagePath(pickedFile.path);
+      final items = ocrResult.items;
 
       if (context.mounted) {
         Navigator.of(context).pop();
@@ -173,7 +188,32 @@ class TransactionListScreen extends ConsumerWidget {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không nhận diện được món/giá từ hóa đơn.')),
+          SnackBar(
+            content: const Text('Không nhận diện được món/giá từ hóa đơn.'),
+            action: SnackBarAction(
+              label: 'Xem debug OCR',
+              onPressed: () => _showOcrDebugDialog(context, ocrResult),
+            ),
+          ),
+        );
+        return;
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      final selectedItems = await _reviewOcrItems(context, items);
+      if (selectedItems == null) {
+        return;
+      }
+
+      if (selectedItems.isEmpty) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Bạn chưa chọn dòng nào để tạo giao dịch.')),
         );
         return;
       }
@@ -198,7 +238,7 @@ class TransactionListScreen extends ConsumerWidget {
       }
 
       final now = DateTime.now();
-      for (final item in items) {
+      for (final item in selectedItems) {
         final tx = Transaction(
           id: '',
           userId: user.uid,
@@ -219,7 +259,7 @@ class TransactionListScreen extends ConsumerWidget {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã tạo tự động ${items.length} giao dịch từ hóa đơn.')),
+        SnackBar(content: Text('Đã tạo ${selectedItems.length} giao dịch từ hóa đơn.')),
       );
     } catch (error) {
       if (context.mounted) {
@@ -229,6 +269,182 @@ class TransactionListScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  Future<void> _showOcrDebugDialog(
+    BuildContext context,
+    ReceiptOcrExtractionResult result,
+  ) async {
+    final previewLines = result.sanitizedLines.take(80).toList();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Debug OCR'),
+          content: SizedBox(
+            width: double.maxFinite,
+            height: 420,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Sanitized lines: ${result.sanitizedLines.length}'),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(dialogContext).dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: SingleChildScrollView(
+                      child: SelectableText(previewLines.join('\n')),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: result.rawText));
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('Đã copy raw OCR text.')),
+                  );
+                }
+              },
+              child: const Text('Copy raw text'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Đóng'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<List<ReceiptOcrItem>?> _reviewOcrItems(
+    BuildContext context,
+    List<ReceiptOcrItem> items,
+  ) async {
+    final selected = items.map((item) => !_isLikelyNoiseItem(item)).toList();
+
+    return showDialog<List<ReceiptOcrItem>>(
+      context: context,
+      builder: (dialogContext) {
+        final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
+
+        return StatefulBuilder(
+          builder: (stateContext, setState) {
+            final selectedCount = selected.where((v) => v).length;
+
+            return AlertDialog(
+              title: const Text('Xác nhận dòng OCR'),
+              content: SizedBox(
+                width: double.maxFinite,
+                height: 380,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Đã nhận diện ${items.length} dòng. Chọn các dòng hợp lệ trước khi lưu.',
+                      style: Theme.of(stateContext).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 8),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: items.length,
+                        itemBuilder: (itemContext, index) {
+                          final item = items[index];
+                          return CheckboxListTile(
+                            dense: true,
+                            value: selected[index],
+                            contentPadding: EdgeInsets.zero,
+                            onChanged: (value) {
+                              setState(() {
+                                selected[index] = value ?? false;
+                              });
+                            },
+                            title: Text(item.name),
+                            subtitle: Text(currency.format(item.amount)),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(null),
+                  child: const Text('Hủy'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      for (var i = 0; i < selected.length; i++) {
+                        selected[i] = false;
+                      }
+                    });
+                  },
+                  child: const Text('Bỏ chọn hết'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final result = <ReceiptOcrItem>[];
+                    for (var i = 0; i < items.length; i++) {
+                      if (selected[i]) {
+                        result.add(items[i]);
+                      }
+                    }
+                    Navigator.of(dialogContext).pop(result);
+                  },
+                  child: Text('Lưu ($selectedCount)'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  bool _isLikelyNoiseItem(ReceiptOcrItem item) {
+    final name = _normalizeOcrText(item.name);
+    if (name.length < 3) {
+      return true;
+    }
+
+    if (item.amount < 100 || item.amount > 100000000) {
+      return true;
+    }
+
+    for (final keyword in _ocrNoiseKeywords) {
+      if (name.contains(keyword)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  String _normalizeOcrText(String input) {
+    return input
+        .toLowerCase()
+        .replaceAll(RegExp(r'[àáạảãâầấậẩẫăằắặẳẵ]'), 'a')
+        .replaceAll(RegExp(r'[èéẹẻẽêềếệểễ]'), 'e')
+        .replaceAll(RegExp(r'[ìíịỉĩ]'), 'i')
+        .replaceAll(RegExp(r'[òóọỏõôồốộổỗơờớợởỡ]'), 'o')
+        .replaceAll(RegExp(r'[ùúụủũưừứựửữ]'), 'u')
+        .replaceAll(RegExp(r'[ỳýỵỷỹ]'), 'y')
+        .replaceAll(RegExp(r'[đ]'), 'd')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
   }
 
   @override
