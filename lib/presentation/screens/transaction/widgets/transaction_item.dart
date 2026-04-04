@@ -7,8 +7,15 @@ import '../../../providers/auth_providers.dart';
 
 class TransactionItem extends ConsumerWidget {
   final Transaction transaction;
+  final VoidCallback? onTap;
+  final VoidCallback? onEdit;
 
-  const TransactionItem({super.key, required this.transaction});
+  const TransactionItem({
+    super.key,
+    required this.transaction,
+    this.onTap,
+    this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -33,6 +40,7 @@ class TransactionItem extends ConsumerWidget {
       child: Card(
         margin: const EdgeInsets.symmetric(vertical: 4),
         child: ListTile(
+          onTap: onTap,
           leading: CircleAvatar(
             backgroundColor: transaction.type == TransactionType.income 
                 ? Colors.green.withValues(alpha: 0.1) 
@@ -46,12 +54,24 @@ class TransactionItem extends ConsumerWidget {
           ),
           title: Text(transaction.title, style: const TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text(dateFormat.format(transaction.occurredAt)),
-          trailing: Text(
-            '${transaction.type == TransactionType.income ? '+' : '-'}${currencyFormat.format(transaction.amount)}',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: transaction.type == TransactionType.income ? Colors.green : Colors.red,
-            ),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${transaction.type == TransactionType.income ? '+' : '-'}${currencyFormat.format(transaction.amount)}',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: transaction.type == TransactionType.income ? Colors.green : Colors.red,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Chỉnh sửa giao dịch',
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined, size: 20),
+                color: Colors.blueGrey,
+                visualDensity: VisualDensity.compact,
+              ),
+            ],
           ),
         ),
       ),

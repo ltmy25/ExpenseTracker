@@ -1,118 +1,16 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:convert';
 import 'package:expensetracker/presentation/providers/auth_providers.dart';
 import 'package:expensetracker/routes/app_routes.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 class ProfileTab extends ConsumerWidget {
   const ProfileTab({super.key});
 
-  static final Uri _githubUri = Uri.parse('https://github.com/ltmy25');
-  static final Uri _facebookUri = Uri.parse('https://facebook.com/ltmy25');
-  static final Uri _linkedinUri = Uri.parse('https://linkedin.com/in/ltmy25');
-  static final Uri _emailUri = Uri(
-    scheme: 'mailto',
-    path: 'ltmy25.dev@gmail.com',
-    query: 'subject=ExpenseTracker%20Support',
-  );
-
   Future<void> _logout(BuildContext context, WidgetRef ref) async {
     await ref.read(authControllerProvider.notifier).signOut();
     if (!context.mounted) return;
-  }
-
-  Future<void> _openUri(BuildContext context, Uri uri) async {
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không thể mở liên kết. Vui lòng thử lại.')),
-      );
-    }
-  }
-
-  Future<void> _copyContact(BuildContext context, String value, String label) async {
-    await Clipboard.setData(ClipboardData(text: value));
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Đã sao chép $label')),
-    );
-  }
-
-  void _showContactSheet(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.code_rounded),
-                  title: const Text('GitHub'),
-                  subtitle: const Text('github.com/ltmy25'),
-                  trailing: IconButton(
-                    tooltip: 'Sao chép link',
-                    icon: const Icon(Icons.copy_rounded),
-                    onPressed: () => _copyContact(sheetContext, _githubUri.toString(), 'link GitHub'),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openUri(context, _githubUri);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.facebook_rounded),
-                  title: const Text('Facebook'),
-                  subtitle: const Text('facebook.com/ltmy25'),
-                  trailing: IconButton(
-                    tooltip: 'Sao chép link',
-                    icon: const Icon(Icons.copy_rounded),
-                    onPressed: () => _copyContact(sheetContext, _facebookUri.toString(), 'link Facebook'),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openUri(context, _facebookUri);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.business_center_rounded),
-                  title: const Text('LinkedIn'),
-                  subtitle: const Text('linkedin.com/in/ltmy25'),
-                  trailing: IconButton(
-                    tooltip: 'Sao chép link',
-                    icon: const Icon(Icons.copy_rounded),
-                    onPressed: () => _copyContact(sheetContext, _linkedinUri.toString(), 'link LinkedIn'),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openUri(context, _linkedinUri);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.email_outlined),
-                  title: const Text('E-mail'),
-                  subtitle: const Text('ltmy25.dev@gmail.com'),
-                  trailing: IconButton(
-                    tooltip: 'Sao chép email',
-                    icon: const Icon(Icons.copy_rounded),
-                    onPressed: () => _copyContact(sheetContext, 'ltmy25.dev@gmail.com', 'email'),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    _openUri(context, _emailUri);
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
   }
 
   @override
@@ -262,7 +160,9 @@ class ProfileTab extends ConsumerWidget {
                               SizedBox(
                                 width: double.infinity,
                                 child: OutlinedButton.icon(
-                                  onPressed: () => _showContactSheet(context),
+                                  onPressed: () {
+                                    Navigator.of(context).pushNamed(AppRoutes.contactUs);
+                                  },
                                   icon: const Icon(Icons.support_agent_rounded),
                                   label: const Text('Mở thông tin liên hệ'),
                                 ),

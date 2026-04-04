@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+import '../../../domain/entities/category.dart';
+import '../../../domain/entities/transaction.dart';
+import '../../providers/category_providers.dart';
 import '../../providers/transaction_providers.dart';
 import 'widgets/add_transaction_bottom_sheet.dart';
 import 'widgets/transaction_item.dart';
 
 class TransactionListScreen extends ConsumerWidget {
   const TransactionListScreen({super.key});
+
+  String _resolveCategoryName(List<Category> categories, String categoryId) {
+    for (final category in categories) {
+      if (category.id == categoryId) {
+        return category.name;
+      }
+    }
+    return 'Danh mục không xác định';
+  }
 
   void _showAddTransaction(BuildContext context) {
     showModalBottomSheet(
@@ -16,9 +29,78 @@ class TransactionListScreen extends ConsumerWidget {
     );
   }
 
+  void _showEditTransaction(BuildContext context, Transaction transaction) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => AddTransactionBottomSheet(transaction: transaction),
+    );
+  }
+
+  void _showTransactionDetail(
+    BuildContext context,
+    Transaction transaction,
+    String categoryName,
+  ) {
+    final currency = NumberFormat.currency(locale: 'vi_VN', symbol: '₫');
+    final date = DateFormat('dd/MM/yyyy').format(transaction.occurredAt);
+    final isIncome = transaction.type == TransactionType.income;
+
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Chi tiết giao dịch'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _detailRow('Tiêu đề', transaction.title),
+              _detailRow('Số tiền', '${isIncome ? '+' : '-'}${currency.format(transaction.amount)}'),
+              _detailRow('Loại', isIncome ? 'Thu nhập' : 'Chi phí'),
+              _detailRow('Ngày', date),
+              _detailRow('Danh mục', categoryName),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Đóng'),
+            ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                _showEditTransaction(context, transaction);
+              },
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Chỉnh sửa'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _detailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(color: Colors.black87, fontSize: 14),
+          children: [
+            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.w700)),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final transactionsAsync = ref.watch(transactionsStreamProvider);
+    final categoriesAsync = ref.watch(categoriesStreamProvider);
     final colors = Theme.of(context).colorScheme;
 
     return Scaffold(
@@ -92,7 +174,14 @@ class TransactionListScreen extends ConsumerWidget {
             itemCount: transactions.length,
             itemBuilder: (context, index) {
               final transaction = transactions[index];
-              return TransactionItem(transaction: transaction);
+              final categories = categoriesAsync.valueOrNull ?? const [];
+              final categoryName = _resolveCategoryName(categories, transaction.categoryId);
+
+              return TransactionItem(
+                transaction: transaction,
+                onTap: () => _showTransactionDetail(context, transaction, categoryName),
+                onEdit: () => _showEditTransaction(context, transaction),
+              );
             },
           );
         },
