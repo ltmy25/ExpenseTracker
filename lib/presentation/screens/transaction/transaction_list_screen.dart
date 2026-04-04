@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import '../../../core/services/receipt_ocr_service.dart';
 import '../../../domain/entities/category.dart';
 import '../../../domain/entities/transaction.dart';
+import '../../providers/auth_providers.dart';
 import '../../providers/category_providers.dart';
 import '../../providers/transaction_providers.dart';
 import 'widgets/add_transaction_bottom_sheet.dart';
@@ -97,6 +100,137 @@ class TransactionListScreen extends ConsumerWidget {
     );
   }
 
+  Future<ImageSource?> _pickReceiptImageSource(BuildContext context) async {
+    return showModalBottomSheet<ImageSource>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt_outlined),
+                title: const Text('Chụp hóa đơn'),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.camera),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library_outlined),
+                title: const Text('Chọn từ thư viện'),
+                onTap: () => Navigator.of(sheetContext).pop(ImageSource.gallery),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _scanReceiptAndCreateExpenses(BuildContext context, WidgetRef ref) async {
+    final user = ref.read(authStateProvider).value;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bạn cần đăng nhập để tạo giao dịch.')),
+      );
+      return;
+    }
+
+    final imageSource = await _pickReceiptImageSource(context);
+    if (imageSource == null) {
+      return;
+    }
+
+    final pickedFile = await ImagePicker().pickImage(
+      source: imageSource,
+      imageQuality: 85,
+      maxWidth: 1800,
+    );
+
+    if (pickedFile == null) {
+      return;
+    }
+
+    if (!context.mounted) {
+      return;
+    }
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      final service = ReceiptOcrService();
+        final items = await service.extractItemsFromImagePath(pickedFile.path);
+
+      if (context.mounted) {
+        Navigator.of(context).pop();
+      }
+
+      if (items.isEmpty) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không nhận diện được món/giá từ hóa đơn.')),
+        );
+        return;
+      }
+
+      final categories = await ref.read(categoriesStreamProvider.future);
+      Category? expenseCategory;
+      for (final category in categories) {
+        if (category.type == TransactionType.expense) {
+          expenseCategory = category;
+          break;
+        }
+      }
+
+      if (expenseCategory == null) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Không tìm thấy danh mục chi phí để gán giao dịch.')),
+        );
+        return;
+      }
+
+      final now = DateTime.now();
+      for (final item in items) {
+        final tx = Transaction(
+          id: '',
+          userId: user.uid,
+          title: item.name,
+          amount: item.amount,
+          occurredAt: now,
+          createdAt: now,
+          updatedAt: now,
+          categoryId: expenseCategory.id,
+          type: TransactionType.expense,
+          note: 'Tạo tự động từ OCR hóa đơn',
+        );
+        await ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
+      }
+
+      if (!context.mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Đã tạo tự động ${items.length} giao dịch từ hóa đơn.')),
+      );
+    } catch (error) {
+      if (context.mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('OCR thất bại: $error')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final transactionsAsync = ref.watch(transactionsStreamProvider);
@@ -146,6 +280,11 @@ class TransactionListScreen extends ConsumerWidget {
           ),
         ),
         actions: [
+          IconButton(
+            onPressed: () => _scanReceiptAndCreateExpenses(context, ref),
+            icon: const Icon(Icons.document_scanner_outlined),
+            tooltip: 'OCR hóa đơn (camera/thư viện)',
+          ),
           IconButton(
             onPressed: () {
               // Navigation to Category management could go here

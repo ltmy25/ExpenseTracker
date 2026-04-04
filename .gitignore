@@ -46,6 +46,7 @@ app.*.map.json
 
 # Firebase / secrets
 lib/firebase_options.dart
+lib/core/config/ai_local_config.dart
 android/app/google-services.json
 ios/Runner/GoogleService-Info.plist
 macos/Runner/GoogleService-Info.plist
