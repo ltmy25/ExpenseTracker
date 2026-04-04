@@ -126,7 +126,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Chatbot AI'),
+        title: const Text(
+          'Chatbot AI',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+            fontSize: 20,
+            shadows: [
+              Shadow(
+                color: Color(0x66000000),
+                blurRadius: 3,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+        centerTitle: false,
+        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: const Color(0xFF74C69D),
+        surfaceTintColor: Colors.transparent,
+        shadowColor: const Color(0x26000000),
+        elevation: 2,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF52B788), Color(0xFF40916C), Color(0xFF2D6A4F)],
+            ),
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: 1,
+              color: Colors.white.withValues(alpha: 0.22),
+            ),
+          ),
+        ),
         actions: [
           IconButton(
             onPressed: _showSessionActions,
@@ -156,7 +195,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       scrollDirection: Axis.horizontal,
                       itemCount: sessions.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 8),
+                      separatorBuilder: (_, _) => const SizedBox(width: 8),
                       itemBuilder: (context, index) {
                         final session = sessions[index];
                         final selected = session.id == selectedChatId;
@@ -176,7 +215,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 },
                 loading: () => const SizedBox(height: 6),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
               );
             },
           ),
@@ -302,7 +341,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   );
                 },
                 loading: () => const SizedBox.shrink(),
-                error: (_, __) => const SizedBox.shrink(),
+                error: (_, _) => const SizedBox.shrink(),
               );
             },
           ),
@@ -392,6 +431,11 @@ class _MessageBubble extends StatelessWidget {
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
+        constraints: const BoxConstraints(maxWidth: 320),
+        decoration: BoxDecoration(
+          color: bgColor,
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onLongPress: () async {
@@ -421,11 +465,6 @@ class _MessageBubble extends StatelessWidget {
               ],
             ),
           ),
-        ),
-        constraints: const BoxConstraints(maxWidth: 320),
-        decoration: BoxDecoration(
-          color: bgColor,
-          borderRadius: BorderRadius.circular(12),
         ),
       ),
     );

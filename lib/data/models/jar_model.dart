@@ -3,14 +3,13 @@ import 'package:expensetracker/domain/entities/jar.dart';
 
 class JarModel extends Jar {
   final String? userId;
-  final List<String>? categoryIds;
 
   const JarModel({
     required super.id,
     this.userId,
     required super.name,
     required super.currentBalance,
-    this.categoryIds,
+    super.categoryIds,
     super.budgetLimit,
     super.color,
     super.icon,

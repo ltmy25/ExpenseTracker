@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:expensetracker/data/datasources/remote/auth_remote_datasource.dart';
@@ -113,13 +114,15 @@ class AuthController extends StateNotifier<AsyncValue<void>> {
 
   Future<void> updateProfile({
     required String displayName,
-    String? photoUrl,
+    Uint8List? avatarBytes,
+    bool removeAvatar = false,
   }) async {
     state = const AsyncValue.loading();
     state = await AsyncValue.guard(() async {
       await _read.read(updateProfileUseCaseProvider).call(
             displayName: displayName,
-            photoUrl: photoUrl,
+            avatarBytes: avatarBytes,
+            removeAvatar: removeAvatar,
           );
     });
   }
@@ -149,6 +152,23 @@ final authControllerProvider = StateNotifierProvider<AuthController, AsyncValue<
   return AuthController(ref);
 });
 
-final currentUserProfileProvider = FutureProvider<AppUser?>((ref) {
-  return ref.watch(getCurrentUserProfileUseCaseProvider).call();
+final currentUserProfileProvider = FutureProvider<AppUser?>((ref) async {
+  final authState = ref.watch(authStateProvider);
+  final authUser = authState.value;
+
+  if (authUser == null) {
+    return null;
+  }
+
+  final profile = await ref.watch(getCurrentUserProfileUseCaseProvider).call();
+  if (profile == null) {
+    return null;
+  }
+
+  // Ensure we never surface a stale cached profile from another account.
+  if (profile.uid != authUser.uid) {
+    return null;
+  }
+
+  return profile;
 });

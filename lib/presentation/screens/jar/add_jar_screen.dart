@@ -133,14 +133,18 @@ class _AddJarScreenState extends ConsumerState<AddJarScreen> {
                         label: Text(cat.name),
                         selected: selected,
                         onSelected: (v) => setState(() {
-                          if (v) _selectedCategoryIds.add(cat.id); else _selectedCategoryIds.remove(cat.id);
+                          if (v) {
+                            _selectedCategoryIds.add(cat.id);
+                          } else {
+                            _selectedCategoryIds.remove(cat.id);
+                          }
                         }),
                       );
                     }).toList(),
                   ),
                 ),
                 loading: () => const CircularProgressIndicator(),
-                error: (_, __) => const Text('Không thể tải danh mục'),
+                error: (_, _) => const Text('Không thể tải danh mục'),
               ),
               const SizedBox(height: 32),
               SizedBox(

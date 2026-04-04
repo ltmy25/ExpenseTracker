@@ -32,9 +32,46 @@ class _DashboardTabState extends ConsumerState<DashboardTab> {
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
-        title: const Text('Trang chủ', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
+        title: const Text(
+          'Trang chủ',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
+            fontSize: 20,
+            shadows: [
+              Shadow(
+                color: Color(0x66000000),
+                blurRadius: 3,
+                offset: Offset(0, 1),
+              ),
+            ],
+          ),
+        ),
+        centerTitle: false,
+        foregroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actionsIconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: const Color(0xFF74C69D),
+        surfaceTintColor: Colors.transparent,
+        shadowColor: const Color(0x26000000),
+        elevation: 2,
+        flexibleSpace: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF52B788), Color(0xFF40916C), Color(0xFF2D6A4F)],
+            ),
+          ),
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              height: 1,
+              color: Colors.white.withValues(alpha: 0.22),
+            ),
+          ),
+        ),
       ),
       body: transactionsAsync.when(
         data: (transactions) {
@@ -156,7 +193,9 @@ class _DashboardTabState extends ConsumerState<DashboardTab> {
 
   Widget _buildLineChart(List<entity.Transaction> txs) {
     Map<int, double> monthlyData = {};
-    for (int i = 1; i <= 12; i++) monthlyData[i] = 0;
+    for (int i = 1; i <= 12; i++) {
+      monthlyData[i] = 0;
+    }
 
     for (final tx in txs) {
       if (tx.type == entity.TransactionType.expense) {
@@ -199,7 +238,7 @@ class _DashboardTabState extends ConsumerState<DashboardTab> {
               dotData: const FlDotData(show: true), // Hiện chấm để dễ nhìn
               belowBarData: BarAreaData(
                 show: true, 
-                color: Colors.green.withOpacity(0.1),
+                color: Colors.green.withValues(alpha: 0.1),
               ),
             ),
           ],

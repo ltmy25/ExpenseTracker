@@ -90,13 +90,15 @@ class _JarDetailScreenState extends ConsumerState<JarDetailScreen> {
 
                     return ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: isExpense ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+                        backgroundColor: isExpense
+                            ? Colors.red.withValues(alpha: 0.1)
+                            : Colors.green.withValues(alpha: 0.1),
                         child: Icon(
                           isExpense ? Icons.remove : Icons.add,
                           color: isExpense ? Colors.red : Colors.green,
                         ),
                       ),
-                      title: Text(tx.title ?? 'Không có tiêu đề'),
+                      title: Text(tx.title),
                       subtitle: Text(dateFormat.format(tx.occurredAt)),
                       trailing: Text(
                         '${isExpense ? '-' : '+'}${currencyFormat.format(tx.amount)}',

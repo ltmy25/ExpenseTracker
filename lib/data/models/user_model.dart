@@ -2,11 +2,15 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:expensetracker/domain/entities/app_user.dart';
 
 class UserModel extends AppUser {
+  static const Object _photoUrlNotSet = Object();
+  static const Object _avatarBase64NotSet = Object();
+
   const UserModel({
     required super.uid,
     required super.email,
     required super.displayName,
     super.photoUrl,
+    super.avatarBase64,
     required super.createdAt,
     required super.updatedAt,
     super.lastLoginAt,
@@ -23,6 +27,7 @@ class UserModel extends AppUser {
       email: (map['email'] as String?) ?? '',
       displayName: (map['displayName'] as String?) ?? '',
       photoUrl: map['photoUrl'] as String?,
+      avatarBase64: map['avatarBase64'] as String?,
       createdAt: createdAt,
       updatedAt: updatedAt,
       lastLoginAt: lastLoginAt,
@@ -36,6 +41,7 @@ class UserModel extends AppUser {
       'email': email,
       'displayName': displayName,
       'photoUrl': photoUrl,
+      'avatarBase64': avatarBase64,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
       'lastLoginAt': lastLoginAt != null ? Timestamp.fromDate(lastLoginAt!) : null,
@@ -45,7 +51,8 @@ class UserModel extends AppUser {
 
   UserModel copyWith({
     String? displayName,
-    String? photoUrl,
+    Object? photoUrl = _photoUrlNotSet,
+    Object? avatarBase64 = _avatarBase64NotSet,
     DateTime? updatedAt,
     DateTime? lastLoginAt,
     bool? isActive,
@@ -54,7 +61,10 @@ class UserModel extends AppUser {
       uid: uid,
       email: email,
       displayName: displayName ?? this.displayName,
-      photoUrl: photoUrl ?? this.photoUrl,
+      photoUrl: identical(photoUrl, _photoUrlNotSet) ? this.photoUrl : photoUrl as String?,
+      avatarBase64: identical(avatarBase64, _avatarBase64NotSet)
+          ? this.avatarBase64
+          : avatarBase64 as String?,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
@@ -67,6 +77,7 @@ class UserModel extends AppUser {
     required String email,
     required String displayName,
     String? photoUrl,
+    String? avatarBase64,
   }) {
     final now = DateTime.now();
     return UserModel(
@@ -74,6 +85,7 @@ class UserModel extends AppUser {
       email: email,
       displayName: displayName,
       photoUrl: photoUrl,
+      avatarBase64: avatarBase64,
       createdAt: now,
       updatedAt: now,
       lastLoginAt: now,

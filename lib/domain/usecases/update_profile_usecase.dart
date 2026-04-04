@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:expensetracker/domain/entities/app_user.dart';
 import 'package:expensetracker/domain/repositories/auth_repository.dart';
 
@@ -8,11 +10,13 @@ class UpdateProfileUseCase {
 
   Future<AppUser> call({
     required String displayName,
-    String? photoUrl,
+    Uint8List? avatarBytes,
+    bool removeAvatar = false,
   }) {
     return _repository.updateProfile(
       displayName: displayName,
-      photoUrl: photoUrl,
+      avatarBytes: avatarBytes,
+      removeAvatar: removeAvatar,
     );
   }
 }

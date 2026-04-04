@@ -40,28 +40,28 @@ class CategoryRepositoryImpl implements CategoryRepository {
     
     final List<Map<String, dynamic>> defaults = [
       {
-        'id': 'cat_food_${userId}',
+        'id': 'cat_food_$userId',
         'name': 'Ăn uống',
         'icon': 'restaurant',
         'type': 'expense',
         'color': '#FFF44336'
       },
       {
-        'id': 'cat_salary_${userId}',
+        'id': 'cat_salary_$userId',
         'name': 'Tiền lương',
         'icon': 'payments',
         'type': 'income',
         'color': '#FF4CAF50'
       },
       {
-        'id': 'cat_transport_${userId}',
+        'id': 'cat_transport_$userId',
         'name': 'Di chuyển',
         'icon': 'directions_car',
         'type': 'expense',
         'color': '#FF2196F3'
       },
       {
-        'id': 'cat_study_${userId}',
+        'id': 'cat_study_$userId',
         'name': 'Học tập',
         'icon': 'school',
         'type': 'expense',

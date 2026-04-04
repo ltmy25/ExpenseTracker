@@ -1,5 +1,4 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Transaction;
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:expensetracker/core/constants/firestore_collections.dart';
 import 'package:expensetracker/data/models/jar_model.dart';
 import 'package:expensetracker/domain/entities/transaction.dart' as entity;
@@ -89,7 +88,7 @@ class JarRemoteDataSource {
         transaction.set(txDoc, {
           ..._txToMap(tx),
           'userId': uid,
-          if (linkedJarId != null) 'jarId': linkedJarId,
+          'jarId': ?linkedJarId,
           'id': txDoc.id,
           'createdAt': Timestamp.now(),
           'updatedAt': Timestamp.now(),

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:expensetracker/domain/entities/app_user.dart';
 
 abstract class AuthRepository {
@@ -22,7 +24,8 @@ abstract class AuthRepository {
 
   Future<AppUser> updateProfile({
     required String displayName,
-    String? photoUrl,
+    Uint8List? avatarBytes,
+    bool removeAvatar = false,
   });
 
   Future<void> changePassword({

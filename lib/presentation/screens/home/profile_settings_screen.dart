@@ -1,5 +1,9 @@
+import 'dart:typed_data';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'package:expensetracker/presentation/providers/auth_providers.dart';
 
@@ -14,18 +18,49 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
   final _profileFormKey = GlobalKey<FormState>();
   final _passwordFormKey = GlobalKey<FormState>();
   final _displayNameController = TextEditingController();
-  final _photoUrlController = TextEditingController();
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
+  final _imagePicker = ImagePicker();
+
+  Uint8List? _selectedAvatarBytes;
+  bool _removeAvatar = false;
   bool _didPrefillProfile = false;
 
   @override
   void dispose() {
     _displayNameController.dispose();
-    _photoUrlController.dispose();
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAvatar() async {
+    final pickedFile = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 1200,
+    );
+
+    if (pickedFile == null) {
+      return;
+    }
+
+    final imageBytes = await pickedFile.readAsBytes();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _selectedAvatarBytes = imageBytes;
+      _removeAvatar = false;
+    });
+  }
+
+  void _clearAvatarSelection() {
+    setState(() {
+      _selectedAvatarBytes = null;
+      _removeAvatar = true;
+    });
   }
 
   Future<void> _updateProfile() async {
@@ -35,9 +70,8 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
 
     await ref.read(authControllerProvider.notifier).updateProfile(
           displayName: _displayNameController.text.trim(),
-          photoUrl: _photoUrlController.text.trim().isEmpty
-              ? null
-              : _photoUrlController.text.trim(),
+          avatarBytes: _selectedAvatarBytes,
+          removeAvatar: _removeAvatar,
         );
 
     if (!mounted) {
@@ -49,6 +83,10 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
     final result = ref.read(authControllerProvider);
     result.whenOrNull(
       data: (_) {
+        setState(() {
+          _selectedAvatarBytes = null;
+          _removeAvatar = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Cập nhật hồ sơ thành công.')),
         );
@@ -109,9 +147,15 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
 
           if (!_didPrefillProfile) {
             _displayNameController.text = profile.displayName;
-            _photoUrlController.text = profile.photoUrl ?? '';
             _didPrefillProfile = true;
           }
+
+          final shouldShowStoredAvatar =
+              !_removeAvatar && _selectedAvatarBytes == null && (profile.avatarBase64?.isNotEmpty ?? false);
+          final storedAvatarBytes = shouldShowStoredAvatar ? _decodeAvatar(profile.avatarBase64) : null;
+          final currentInitial = profile.displayName.isEmpty
+              ? 'U'
+              : profile.displayName.substring(0, 1).toUpperCase();
 
           return Container(
             decoration: BoxDecoration(
@@ -142,16 +186,21 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                                 CircleAvatar(
                                   radius: 24,
                                   backgroundColor: colors.primary,
-                                  child: Text(
-                                    profile.displayName.isEmpty
-                                        ? 'U'
-                                        : profile.displayName.substring(0, 1).toUpperCase(),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
+                                  backgroundImage: _selectedAvatarBytes != null
+                                      ? MemoryImage(_selectedAvatarBytes!)
+                                      : (storedAvatarBytes != null
+                                          ? MemoryImage(storedAvatarBytes)
+                                          : null),
+                                  child: (_selectedAvatarBytes == null && storedAvatarBytes == null)
+                                      ? Text(
+                                          currentInitial,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                        )
+                                      : null,
                                 ),
                                 const SizedBox(width: 12),
                                 Expanded(
@@ -202,12 +251,25 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
                                     },
                                   ),
                                   const SizedBox(height: 12),
-                                  TextFormField(
-                                    controller: _photoUrlController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Avatar URL (không bắt buộc)',
-                                      prefixIcon: Icon(Icons.image_outlined),
-                                    ),
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: isLoading ? null : _pickAvatar,
+                                          icon: const Icon(Icons.photo_library_outlined),
+                                          label: const Text('Chọn ảnh đại diện từ máy'),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      if ((profile.avatarBase64?.isNotEmpty ?? false) ||
+                                          _selectedAvatarBytes != null ||
+                                          _removeAvatar)
+                                        OutlinedButton.icon(
+                                          onPressed: isLoading ? null : _clearAvatarSelection,
+                                          icon: const Icon(Icons.delete_outline_rounded),
+                                          label: const Text('Xóa ảnh'),
+                                        ),
+                                    ],
                                   ),
                                   const SizedBox(height: 12),
                                   SizedBox(
@@ -297,5 +359,17 @@ class _ProfileSettingsScreenState extends ConsumerState<ProfileSettingsScreen> {
         error: (error, _) => Center(child: Text('Lỗi tải hồ sơ: $error')),
       ),
     );
+  }
+
+  Uint8List? _decodeAvatar(String? avatarBase64) {
+    if (avatarBase64 == null || avatarBase64.isEmpty) {
+      return null;
+    }
+
+    try {
+      return base64Decode(avatarBase64);
+    } catch (_) {
+      return null;
+    }
   }
 }

@@ -4,6 +4,7 @@ class AppUser {
     required this.email,
     required this.displayName,
     this.photoUrl,
+    this.avatarBase64,
     required this.createdAt,
     required this.updatedAt,
     this.lastLoginAt,
@@ -14,6 +15,7 @@ class AppUser {
   final String email;
   final String displayName;
   final String? photoUrl;
+  final String? avatarBase64;
   final DateTime createdAt;
   final DateTime updatedAt;
   final DateTime? lastLoginAt;

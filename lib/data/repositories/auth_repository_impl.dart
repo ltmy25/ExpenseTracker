@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:expensetracker/data/datasources/remote/auth_remote_datasource.dart';
@@ -55,11 +57,13 @@ class AuthRepositoryImpl implements AuthRepository {
   @override
   Future<AppUser> updateProfile({
     required String displayName,
-    String? photoUrl,
+    Uint8List? avatarBytes,
+    bool removeAvatar = false,
   }) {
     return _remoteDataSource.updateProfile(
       displayName: displayName,
-      photoUrl: photoUrl,
+      avatarBytes: avatarBytes,
+      removeAvatar: removeAvatar,
     );
   }
 

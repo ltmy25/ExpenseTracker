@@ -79,7 +79,10 @@ class _AddTransactionBottomSheetState extends ConsumerState<AddTransactionBottom
                   isDefault: false,
                 );
                 await ref.read(addCategoryUseCaseProvider).call(user.uid, newCategory);
-                if (mounted) Navigator.pop(context);
+                if (!context.mounted) {
+                  return;
+                }
+                Navigator.pop(context);
               }
             },
             child: const Text('Thêm'),
@@ -229,7 +232,7 @@ class _AddTransactionBottomSheetState extends ConsumerState<AddTransactionBottom
                         }
 
                         return DropdownButtonFormField<String>(
-                          value: _selectedCategoryId,
+                          initialValue: _selectedCategoryId,
                           decoration: const InputDecoration(
                             labelText: 'Danh mục',
                             border: OutlineInputBorder(),
@@ -244,7 +247,7 @@ class _AddTransactionBottomSheetState extends ConsumerState<AddTransactionBottom
                         );
                       },
                       loading: () => const LinearProgressIndicator(),
-                      error: (_, __) => const Text('Lỗi tải danh mục'),
+                      error: (_, _) => const Text('Lỗi tải danh mục'),
                     ),
                   ),
                   const SizedBox(width: 8),

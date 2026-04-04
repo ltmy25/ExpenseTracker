@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +10,8 @@ import 'package:expensetracker/core/constants/firestore_collections.dart';
 import 'package:expensetracker/data/models/user_model.dart';
 
 class AuthRemoteDataSource {
+  static const int _maxAvatarBytes = 700 * 1024;
+
   AuthRemoteDataSource({
     required FirebaseAuth firebaseAuth,
     required FirebaseFirestore firestore,
@@ -123,17 +126,33 @@ class AuthRemoteDataSource {
 
   Future<UserModel> updateProfile({
     required String displayName,
-    String? photoUrl,
+    Uint8List? avatarBytes,
+    bool removeAvatar = false,
   }) async {
     final user = _firebaseAuth.currentUser;
     if (user == null) {
       throw FirebaseAuthException(code: 'user-not-logged-in');
     }
 
-    await user.updateDisplayName(displayName);
-    if (photoUrl != null && photoUrl.trim().isNotEmpty) {
-      await user.updatePhotoURL(photoUrl);
+    String? nextAvatarBase64;
+    var shouldUpdateAvatar = false;
+
+    if (removeAvatar) {
+      nextAvatarBase64 = null;
+      shouldUpdateAvatar = true;
+    } else if (avatarBytes != null) {
+      if (avatarBytes.lengthInBytes > _maxAvatarBytes) {
+        throw FirebaseException(
+          plugin: 'cloud_firestore',
+          code: 'avatar-too-large',
+          message: 'Ảnh đại diện quá lớn. Vui lòng chọn ảnh nhỏ hơn 700KB.',
+        );
+      }
+      nextAvatarBase64 = base64Encode(avatarBytes);
+      shouldUpdateAvatar = true;
     }
+
+    await user.updateDisplayName(displayName);
 
     await user.reload();
     final refreshedUser = _firebaseAuth.currentUser;
@@ -153,7 +172,8 @@ class AuthRemoteDataSource {
 
     final updated = current.copyWith(
       displayName: displayName,
-      photoUrl: photoUrl,
+      photoUrl: null,
+      avatarBase64: shouldUpdateAvatar ? nextAvatarBase64 : current.avatarBase64,
       updatedAt: DateTime.now(),
     );
 
@@ -194,7 +214,8 @@ class AuthRemoteDataSource {
       uid: user.uid,
       email: user.email ?? '',
       displayName: user.displayName ?? '',
-      photoUrl: user.photoURL,
+      photoUrl: null,
+      avatarBase64: null,
     );
     await _usersRef.doc(user.uid).set(fallback.toMap(), SetOptions(merge: true));
     return fallback;
@@ -217,7 +238,8 @@ class AuthRemoteDataSource {
         uid: user.uid,
         email: user.email ?? fallbackEmail,
         displayName: user.displayName ?? fallbackDisplayName,
-        photoUrl: user.photoURL,
+        photoUrl: null,
+        avatarBase64: null,
       );
       await _setUserProfileWithRetry(userDoc, newProfile.toMap(), user);
       return newProfile;
@@ -225,7 +247,7 @@ class AuthRemoteDataSource {
 
     final profile = UserModel.fromMap(snapshot.data()!, user.uid).copyWith(
       displayName: user.displayName,
-      photoUrl: user.photoURL,
+      photoUrl: null,
       updatedAt: DateTime.now(),
       lastLoginAt: DateTime.now(),
       isActive: true,
@@ -252,4 +274,5 @@ class AuthRemoteDataSource {
       await userDoc.set(data, SetOptions(merge: true));
     }
   }
+
 }
