@@ -26,9 +26,9 @@ $financialContext
 ''';
 
     const candidateModels = <String>[
-      'gemini-2.5-flash',
-      'gemini-2.0-flash',
-      'gemini-2.5-pro',
+      'gemini-2.5-flash-lite',
+      'gemini-3.1-flash-lite',
+      'gemma-3-12b-it',
     ];
 
     Object? lastError;
@@ -45,11 +45,53 @@ $financialContext
         if (text != null && text.isNotEmpty) {
           return text;
         }
+
+        // Empty response is treated as non-fatal and can try next candidate.
+        lastError = 'Model $modelName returned empty text.';
       } catch (error) {
         lastError = error;
+        final errorText = error.toString().toLowerCase();
+
+        if (_isQuotaError(errorText)) {
+          throw Exception(
+            'Bạn đã vượt hạn mức Gemini API (quota). Vui lòng chờ reset quota hoặc dùng API key/project khác.',
+          );
+        }
+
+        if (_isAuthOrPermissionError(errorText)) {
+          throw Exception(
+            'API key Gemini không hợp lệ hoặc không có quyền. Vui lòng kiểm tra lại key/project.',
+          );
+        }
+
+        // Only fallback to next model for unsupported/not-found model issues.
+        if (!_isModelCompatibilityError(errorText)) {
+          throw Exception('Không gọi được model $modelName: $error');
+        }
       }
     }
 
-    throw Exception('Khong goi duoc Gemini model. Loi cuoi: $lastError');
+    throw Exception('Không gọi được Gemini model. Lỗi cuối: $lastError');
+  }
+
+  bool _isQuotaError(String errorText) {
+    return errorText.contains('quota') ||
+        errorText.contains('resource_exhausted') ||
+        errorText.contains('429');
+  }
+
+  bool _isAuthOrPermissionError(String errorText) {
+    return errorText.contains('api key not valid') ||
+        errorText.contains('permission denied') ||
+        errorText.contains('unauthorized') ||
+        errorText.contains('403') ||
+        errorText.contains('401');
+  }
+
+  bool _isModelCompatibilityError(String errorText) {
+    return errorText.contains('not found') ||
+        errorText.contains('is not supported for generatecontent') ||
+        errorText.contains('unknown model') ||
+        errorText.contains('404');
   }
 }
