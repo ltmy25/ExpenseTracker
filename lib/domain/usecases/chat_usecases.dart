@@ -127,6 +127,22 @@ class GenerateAiReceiptAnalysisUseCase {
   }
 }
 
+class GenerateAiReceiptTextAnalysisUseCase {
+  const GenerateAiReceiptTextAnalysisUseCase(this._repository);
+
+  final AiRepository _repository;
+
+  Future<AiReceiptAnalysis> call({
+    required String ocrText,
+    required String financialContext,
+  }) {
+    return _repository.analyzeReceiptText(
+      ocrText: ocrText,
+      financialContext: financialContext,
+    );
+  }
+}
+
 class CreateTransactionFromDraftUseCase {
   const CreateTransactionFromDraftUseCase(this._repository);
 

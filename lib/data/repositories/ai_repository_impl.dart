@@ -46,11 +46,33 @@ class AiRepositoryImpl implements AiRepository {
       financialContext: financialContext,
     );
 
+    return _parseReceiptAnalysis(raw);
+  }
+
+  @override
+  Future<AiReceiptAnalysis> analyzeReceiptText({
+    required String ocrText,
+    required String financialContext,
+  }) async {
+    final raw = await _remoteDataSource.analyzeReceiptText(
+      ocrText: ocrText,
+      financialContext: financialContext,
+    );
+
+    return _parseReceiptAnalysis(raw);
+  }
+
+  AiReceiptAnalysis _parseReceiptAnalysis(String raw) {
     try {
       final normalized = _extractJsonPayload(raw);
       final decoded = jsonDecode(normalized) as Map<String, dynamic>;
 
       final summary = (decoded['summary'] as String?)?.trim() ?? '';
+      final totalValue = decoded['totalAmount'];
+      final totalAmount = totalValue is num
+          ? totalValue.toDouble()
+          : double.tryParse((totalValue ?? '').toString());
+        final categoryHint = (decoded['categoryHint'] as String?)?.trim();
       final rawItems = decoded['items'];
       final items = <AiReceiptItem>[];
 
@@ -71,7 +93,12 @@ class AiRepositoryImpl implements AiRepository {
         }
       }
 
-      return AiReceiptAnalysis(reply: summary, items: items);
+      return AiReceiptAnalysis(
+        reply: summary,
+        totalAmount: totalAmount,
+        categoryHint: categoryHint,
+        items: items,
+      );
     } catch (_) {
       return AiReceiptAnalysis(reply: raw, items: const <AiReceiptItem>[]);
     }

@@ -14,4 +14,9 @@ abstract class AiRepository {
     required String mimeType,
     required String financialContext,
   });
+
+  Future<AiReceiptAnalysis> analyzeReceiptText({
+    required String ocrText,
+    required String financialContext,
+  });
 }

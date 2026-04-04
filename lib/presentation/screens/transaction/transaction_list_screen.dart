@@ -7,12 +7,22 @@ import '../../../domain/entities/category.dart';
 import '../../../domain/entities/transaction.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/category_providers.dart';
+import '../../providers/chat_providers.dart';
 import '../../providers/transaction_providers.dart';
 import 'widgets/add_transaction_bottom_sheet.dart';
 import 'widgets/transaction_item.dart';
 
 class TransactionListScreen extends ConsumerWidget {
   const TransactionListScreen({super.key});
+
+  static const Map<String, List<String>> _categoryKeywordGroups = {
+    'an uong': ['an', 'uong', 'food', 'am thuc', 'do an', 'cafe', 'ca phe', 'tra sua', 'nha hang'],
+    'di chuyen': ['di chuyen', 'xang', 'grab', 'taxi', 'xe', 'gui xe', 'bus', 'metro'],
+    'mua sam': ['mua sam', 'shopping', 'sieu thi', 'mini mart', 'store', 'tap hoa', 'shop'],
+    'hoa don': ['hoa don', 'dien', 'nuoc', 'internet', 'wifi', 'dien thoai', 'phi dich vu'],
+    'suc khoe': ['suc khoe', 'benh vien', 'thuoc', 'y te', 'phong kham', 'nhathuoc'],
+    'giao duc': ['giao duc', 'hoc phi', 'khoa hoc', 'sach', 'education', 'lop hoc'],
+  };
 
   String _resolveCategoryName(List<Category> categories, String categoryId) {
     for (final category in categories) {
@@ -21,6 +31,72 @@ class TransactionListScreen extends ConsumerWidget {
       }
     }
     return 'Danh mục không xác định';
+  }
+
+  Category? _pickBestExpenseCategory(List<Category> categories, String hintText) {
+    final expenseCategories = categories.where((c) => c.type == TransactionType.expense).toList();
+    if (expenseCategories.isEmpty) {
+      return null;
+    }
+
+    final normalizedHint = _normalizeText(hintText);
+    if (normalizedHint.isEmpty) {
+      return expenseCategories.first;
+    }
+
+    Category? best;
+    var bestScore = -1;
+
+    for (final category in expenseCategories) {
+      final categoryNorm = _normalizeText(category.name);
+      var score = 0;
+
+      if (categoryNorm.isNotEmpty && normalizedHint.contains(categoryNorm)) {
+        score += 10;
+      }
+      if (categoryNorm.isNotEmpty && categoryNorm.contains(normalizedHint)) {
+        score += 6;
+      }
+
+      final words = categoryNorm.split(' ').where((w) => w.length >= 3);
+      for (final word in words) {
+        if (normalizedHint.contains(word)) {
+          score += 2;
+        }
+      }
+
+      for (final group in _categoryKeywordGroups.entries) {
+        if (!normalizedHint.contains(group.key)) {
+          continue;
+        }
+        for (final keyword in group.value) {
+          final normalizedKeyword = _normalizeText(keyword);
+          if (categoryNorm.contains(normalizedKeyword)) {
+            score += 3;
+            break;
+          }
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = category;
+      }
+    }
+
+    return best ?? expenseCategories.first;
+  }
+
+  String _normalizeText(String input) {
+    var text = input.toLowerCase();
+    const withAccent = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+    const withoutAccent = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiioooooooooooooooooouuuuuuuuuuuyyyyyd';
+    for (var i = 0; i < withAccent.length; i++) {
+      text = text.replaceAll(withAccent[i], withoutAccent[i]);
+    }
+    text = text.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ');
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return text;
   }
 
   void _showAddTransaction(BuildContext context) {
@@ -162,30 +238,43 @@ class TransactionListScreen extends ConsumerWidget {
 
     try {
       final service = ReceiptOcrService();
-        final items = await service.extractItemsFromImagePath(pickedFile.path);
+      final ocrText = await service.extractTextFromImagePath(pickedFile.path);
+      final aiResult = await ref.read(generateAiReceiptTextAnalysisUseCaseProvider).call(
+            ocrText: ocrText,
+            financialContext: 'Nguoi dung dang tao giao dich tu OCR hoa don.',
+          );
+
+      var totalAmount = aiResult.totalAmount ?? 0;
+      if (totalAmount <= 0 && aiResult.items.isNotEmpty) {
+        for (final item in aiResult.items) {
+          totalAmount += item.amount;
+        }
+      }
+      if (totalAmount <= 0) {
+        totalAmount = await service.extractTotalFromImagePath(pickedFile.path) ?? 0;
+      }
 
       if (context.mounted) {
         Navigator.of(context).pop();
       }
 
-      if (items.isEmpty) {
+      if (totalAmount <= 0) {
         if (!context.mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Không nhận diện được món/giá từ hóa đơn.')),
+          const SnackBar(content: Text('Không nhận diện được tổng tiền từ hóa đơn.')),
         );
         return;
       }
 
       final categories = await ref.read(categoriesStreamProvider.future);
-      Category? expenseCategory;
-      for (final category in categories) {
-        if (category.type == TransactionType.expense) {
-          expenseCategory = category;
-          break;
-        }
-      }
+      final hintSegments = <String>[
+        aiResult.categoryHint ?? '',
+        aiResult.reply,
+        ...aiResult.items.take(3).map((e) => e.name),
+      ];
+      final expenseCategory = _pickBestExpenseCategory(categories, hintSegments.join(' '));
 
       if (expenseCategory == null) {
         if (!context.mounted) {
@@ -198,28 +287,26 @@ class TransactionListScreen extends ConsumerWidget {
       }
 
       final now = DateTime.now();
-      for (final item in items) {
-        final tx = Transaction(
-          id: '',
-          userId: user.uid,
-          title: item.name,
-          amount: item.amount,
-          occurredAt: now,
-          createdAt: now,
-          updatedAt: now,
-          categoryId: expenseCategory.id,
-          type: TransactionType.expense,
-          note: 'Tạo tự động từ OCR hóa đơn',
-        );
-        await ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
-      }
+      final tx = Transaction(
+        id: '',
+        userId: user.uid,
+        title: 'Chi tiêu từ hóa đơn',
+        amount: totalAmount,
+        occurredAt: now,
+        createdAt: now,
+        updatedAt: now,
+        categoryId: expenseCategory.id,
+        type: TransactionType.expense,
+        note: 'Tạo tự động từ OCR + AI phân tích hóa đơn',
+      );
+      await ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
 
       if (!context.mounted) {
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đã tạo tự động ${items.length} giao dịch từ hóa đơn.')),
+        SnackBar(content: Text('Đã tạo giao dịch từ tổng tiền hóa đơn: ${totalAmount.toStringAsFixed(0)}đ.')),
       );
     } catch (error) {
       if (context.mounted) {

@@ -6,6 +6,67 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 class GeminiRemoteDataSource {
   const GeminiRemoteDataSource();
 
+  Future<String> analyzeReceiptText({
+    required String ocrText,
+    required String financialContext,
+  }) async {
+    if (!AiLocalConfig.hasValidKey) {
+      throw Exception('Gemini API key chua duoc cau hinh trong ai_local_config.dart');
+    }
+
+    final prompt = '''
+Ban la tro ly quan ly chi tieu cho nguoi dung Viet Nam.
+Duoi day la van ban OCR lay tu hoa don. Hay phan tich va tra ve JSON hop le DUY NHAT theo dung schema:
+{
+  "summary": "string",
+  "totalAmount": 12345,
+  "categoryHint": "an uong|di chuyen|mua sam|hoa don|suc khoe|giao duc|khac",
+  "items": [
+    {"name": "string", "amount": 12345}
+  ]
+}
+
+Quy tac:
+- Chi tra ve JSON, khong markdown, khong giai thich.
+- totalAmount la tong thanh toan cuoi cung can tra (VND chi so).
+- Neu khong chac chan totalAmount thi de null.
+- categoryHint la nhom chi tieu phu hop nhat, uu tien gia tri ngan gon khong dau.
+- items co the rong neu OCR khong ro.
+
+Bo canh tai chinh:
+$financialContext
+
+OCR text:
+$ocrText
+''';
+
+    const candidateModels = <String>[
+      'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-2.5-pro',
+    ];
+
+    Object? lastError;
+    for (final modelName in candidateModels) {
+      try {
+        final model = GenerativeModel(
+          model: modelName,
+          apiKey: AiLocalConfig.geminiApiKey,
+        );
+
+        final response = await model.generateContent(<Content>[Content.text(prompt)]);
+        final text = response.text?.trim();
+        if (text != null && text.isNotEmpty) {
+          return text;
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw Exception('Khong goi duoc Gemini model (ocr text). Loi cuoi: $lastError');
+  }
+
   Future<String> analyzeReceiptImage({
     required Uint8List imageBytes,
     required String mimeType,
@@ -20,6 +81,8 @@ Ban la tro ly quan ly chi tieu cho nguoi dung Viet Nam.
 Hay phan tich anh bill va tra ve JSON hop le DUY NHAT theo dung schema:
 {
   "summary": "string",
+  "totalAmount": 12345,
+  "categoryHint": "an uong|di chuyen|mua sam|hoa don|suc khoe|giao duc|khac",
   "items": [
     {"name": "string", "amount": 12345}
   ]
@@ -29,7 +92,9 @@ Quy tac:
 - Chi tra ve JSON, khong them markdown, khong them giai thich.
 - "items" chi gom cac dong mua hang co ten + don gia.
 - Bo qua tong tien, VAT, discount, service charge, thong tin cua hang, thoi gian.
+- totalAmount la tong thanh toan cuoi cung (neu xac dinh duoc), khong thi de null.
 - amount la so VND (chi so, khong dau phay).
+- categoryHint la nhom chi tieu phu hop nhat, uu tien gia tri ngan gon khong dau.
 - summary toi da 2 cau, ngan gon, huu ich.
 
 Bo canh tai chinh:

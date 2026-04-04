@@ -9,6 +9,7 @@ import 'package:expensetracker/data/repositories/ai_repository_impl.dart';
 import 'package:expensetracker/data/repositories/chat_repository_impl.dart';
 import 'package:expensetracker/domain/entities/chat_message.dart';
 import 'package:expensetracker/domain/entities/chat_session.dart';
+import 'package:expensetracker/domain/entities/category.dart';
 import 'package:expensetracker/domain/entities/parsed_transaction_draft.dart';
 import 'package:expensetracker/domain/entities/transaction.dart';
 import 'package:expensetracker/domain/repositories/ai_repository.dart';
@@ -82,6 +83,11 @@ final generateAiReplyUseCaseProvider = Provider<GenerateAiReplyUseCase>((ref) {
 final generateAiReceiptAnalysisUseCaseProvider =
     Provider<GenerateAiReceiptAnalysisUseCase>((ref) {
   return GenerateAiReceiptAnalysisUseCase(ref.watch(aiRepositoryProvider));
+});
+
+final generateAiReceiptTextAnalysisUseCaseProvider =
+    Provider<GenerateAiReceiptTextAnalysisUseCase>((ref) {
+  return GenerateAiReceiptTextAnalysisUseCase(ref.watch(aiRepositoryProvider));
 });
 
 final createTransactionFromDraftUseCaseProvider = Provider<CreateTransactionFromDraftUseCase>((ref) {
@@ -172,6 +178,15 @@ class ChatController extends StateNotifier<ChatState> {
   ChatController(this._ref) : super(const ChatState());
 
   final Ref _ref;
+
+  static const Map<String, List<String>> _expenseCategoryKeywordGroups = {
+    'an uong': ['an', 'uong', 'food', 'am thuc', 'do an', 'cafe', 'ca phe', 'tra sua', 'nha hang'],
+    'di chuyen': ['di chuyen', 'xang', 'grab', 'taxi', 'xe', 'gui xe', 'bus', 'metro'],
+    'mua sam': ['mua sam', 'shopping', 'sieu thi', 'mini mart', 'store', 'tap hoa', 'shop'],
+    'hoa don': ['hoa don', 'dien', 'nuoc', 'internet', 'wifi', 'dien thoai', 'phi dich vu'],
+    'suc khoe': ['suc khoe', 'benh vien', 'thuoc', 'y te', 'phong kham', 'nhathuoc'],
+    'giao duc': ['giao duc', 'hoc phi', 'khoa hoc', 'sach', 'education', 'lop hoc'],
+  };
 
   Future<String?> ensureSelectedChat() async {
     final user = _ref.read(authStateProvider).value;
@@ -387,15 +402,17 @@ class ChatController extends StateNotifier<ChatState> {
             financialContext: _buildFinancialContext(),
           );
 
-      var items = aiReceipt.items
-          .map((item) => ReceiptOcrItem(name: item.name, amount: item.amount))
-          .toList();
-
-      if (items.isEmpty) {
-        items = await _ref.read(receiptOcrServiceProvider).extractItemsFromImagePath(file.path);
+      var totalAmount = 0.0;
+      if (aiReceipt.items.isNotEmpty) {
+        for (final item in aiReceipt.items) {
+          totalAmount += item.amount;
+        }
+      } else {
+        final totalFromOcr = await _ref.read(receiptOcrServiceProvider).extractTotalFromImagePath(file.path);
+        totalAmount = totalFromOcr ?? 0;
       }
 
-      if (items.isEmpty) {
+      if (totalAmount <= 0) {
         await _ref.read(addChatMessageUseCaseProvider).call(
               chatId: chatId,
               message: ChatMessage(
@@ -403,7 +420,7 @@ class ChatController extends StateNotifier<ChatState> {
                 chatId: chatId,
                 userId: user.uid,
                 sender: ChatSender.assistant,
-                text: 'Mình chưa đọc được món và giá từ ảnh bill. Bạn thử ảnh rõ hơn nhé.',
+                text: 'Mình chưa đọc được tổng tiền từ ảnh bill. Bạn thử ảnh rõ hơn nhé.',
                 createdAt: DateTime.now(),
               ),
             );
@@ -412,13 +429,15 @@ class ChatController extends StateNotifier<ChatState> {
       }
 
       final categories = await _ref.read(categoriesStreamProvider.future);
-      String? expenseCategoryId;
-      for (final category in categories) {
-        if (category.type == TransactionType.expense) {
-          expenseCategoryId = category.id;
-          break;
-        }
-      }
+      final hint = [
+        aiReceipt.categoryHint ?? '',
+        aiReceipt.reply,
+        ...aiReceipt.items.take(3).map((e) => e.name),
+      ].join(' ');
+      final expenseCategoryId = _pickExpenseCategoryIdFromHint(
+        categories: categories,
+        hintText: hint,
+      );
 
       if (expenseCategoryId == null) {
         state = state.copyWith(
@@ -430,37 +449,32 @@ class ChatController extends StateNotifier<ChatState> {
       }
 
       final now = DateTime.now();
-      double total = 0;
-      for (final item in items) {
-        total += item.amount;
-        final tx = Transaction(
-          id: '',
-          userId: user.uid,
-          title: item.name,
-          amount: item.amount,
-          occurredAt: now,
-          createdAt: now,
-          updatedAt: now,
-          categoryId: expenseCategoryId,
-          type: TransactionType.expense,
-          note: 'Tạo tự động từ ảnh bill trong Chat AI',
-        );
-        await _ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
-      }
+      final tx = Transaction(
+        id: '',
+        userId: user.uid,
+        title: 'Chi tiêu từ hóa đơn',
+        amount: totalAmount,
+        occurredAt: now,
+        createdAt: now,
+        updatedAt: now,
+        categoryId: expenseCategoryId,
+        type: TransactionType.expense,
+        note: 'Tạo tự động từ tổng tiền hóa đơn trong Chat AI',
+      );
+      await _ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
 
-      final topItems = items.take(3).map((e) => '- ${e.name}: ${e.amount.toStringAsFixed(0)}đ').join('\n');
       var assistantText = aiReceipt.reply.trim();
       if (assistantText.isEmpty || assistantText.startsWith('{') || assistantText.startsWith('[')) {
         final aiPrompt =
-            'Nguoi dung da gui anh bill. Da tao ${items.length} giao dich chi tieu, tong ${total.toStringAsFixed(0)} VND. '
-            'Cac mon tieu bieu:\n$topItems\nHay tom tat ngan gon va dua 1 goi y tiet kiem.';
+            'Nguoi dung da gui anh bill. Da tao 1 giao dich chi tieu, tong ${totalAmount.toStringAsFixed(0)} VND. '
+            'Hay tom tat ngan gon va dua 1 goi y tiet kiem.';
         final aiResponse = await _ref.read(generateAiReplyUseCaseProvider).call(
               message: aiPrompt,
               financialContext: _buildFinancialContext(),
             );
         assistantText = aiResponse.reply;
       } else {
-        assistantText = 'Đã phân tích bill và tự tạo ${items.length} giao dịch (tổng ${total.toStringAsFixed(0)}đ).\n\n$assistantText\n\n$topItems';
+        assistantText = 'Đã phân tích bill và tự tạo 1 giao dịch (tổng ${totalAmount.toStringAsFixed(0)}đ).\n\n$assistantText';
       }
 
       await _ref.read(addChatMessageUseCaseProvider).call(
@@ -569,6 +583,78 @@ class ChatController extends StateNotifier<ChatState> {
 
     final firstSameType = categories.where((c) => c.type == draft.type).toList();
     return firstSameType.isEmpty ? null : firstSameType.first.id;
+  }
+
+  String? _pickExpenseCategoryIdFromHint({
+    required List<Category> categories,
+    required String hintText,
+  }) {
+    final expenseCategories = categories.where((c) => c.type == TransactionType.expense).toList();
+
+    if (expenseCategories.isEmpty) {
+      return null;
+    }
+
+    final normalizedHint = _normalizeText(hintText);
+    if (normalizedHint.isEmpty) {
+      return expenseCategories.first.id;
+    }
+
+    Category? best;
+    var bestScore = -1;
+
+    for (final category in expenseCategories) {
+      final categoryNorm = _normalizeText(category.name);
+      var score = 0;
+
+      if (categoryNorm.isNotEmpty && normalizedHint.contains(categoryNorm)) {
+        score += 10;
+      }
+      if (categoryNorm.isNotEmpty && categoryNorm.contains(normalizedHint)) {
+        score += 6;
+      }
+
+      final words = categoryNorm.split(' ').where((w) => w.length >= 3);
+      for (final word in words) {
+        if (normalizedHint.contains(word)) {
+          score += 2;
+        }
+      }
+
+      for (final group in _expenseCategoryKeywordGroups.entries) {
+        if (!normalizedHint.contains(group.key)) {
+          continue;
+        }
+        for (final keyword in group.value) {
+          final normalizedKeyword = _normalizeText(keyword);
+          if (categoryNorm.contains(normalizedKeyword)) {
+            score += 3;
+            break;
+          }
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = category;
+      }
+    }
+
+    return (best ?? expenseCategories.first).id;
+  }
+
+  String _normalizeText(String input) {
+    var text = input.toLowerCase();
+    const withAccent = 'àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ';
+    const withoutAccent = 'aaaaaaaaaaaaaaaaaeeeeeeeeeeeiiiiioooooooooooooooooouuuuuuuuuuuyyyyyd';
+
+    for (var i = 0; i < withAccent.length; i++) {
+      text = text.replaceAll(withAccent[i], withoutAccent[i]);
+    }
+
+    text = text.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ');
+    text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    return text;
   }
 }
 

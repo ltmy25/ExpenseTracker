@@ -11,9 +11,13 @@ class AiReceiptItem {
 class AiReceiptAnalysis {
   const AiReceiptAnalysis({
     required this.reply,
+    this.totalAmount,
+    this.categoryHint,
     this.items = const <AiReceiptItem>[],
   });
 
   final String reply;
+  final double? totalAmount;
+  final String? categoryHint;
   final List<AiReceiptItem> items;
 }
