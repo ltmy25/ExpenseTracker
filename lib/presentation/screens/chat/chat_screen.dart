@@ -17,6 +17,54 @@ class ChatScreen extends ConsumerStatefulWidget {
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final TextEditingController _messageController = TextEditingController();
+  final ScrollController _chatScrollController = ScrollController();
+  ProviderSubscription<String?>? _chatIdSubscription;
+  int _lastVisibleMessageCount = -1;
+
+  void _scrollToLatest({bool animated = true}) {
+    if (!_chatScrollController.hasClients) {
+      return;
+    }
+
+    final target = _chatScrollController.position.maxScrollExtent;
+    if (animated) {
+      _chatScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOut,
+      );
+      return;
+    }
+
+    _chatScrollController.jumpTo(target);
+  }
+
+  void _scheduleScrollToLatest({bool animated = true}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      _scrollToLatest(animated: animated);
+    });
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Ensure screen opens at the latest chat segment instead of the top.
+    _scheduleScrollToLatest(animated: false);
+
+    _chatIdSubscription = ref.listenManual<String?>(
+      chatControllerProvider.select((state) => state.selectedChatId),
+      (previous, next) {
+        if (previous != next) {
+          _lastVisibleMessageCount = -1;
+          _scheduleScrollToLatest(animated: false);
+        }
+      },
+    );
+  }
 
   Future<void> _sendReceiptImage() async {
     final source = await showModalBottomSheet<ImageSource>(
@@ -141,7 +189,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   @override
   void dispose() {
+    _chatIdSubscription?.close();
     _messageController.dispose();
+    _chatScrollController.dispose();
     super.dispose();
   }
 
@@ -268,7 +318,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       );
                     }
 
+                    final visibleCount = messages.length + (isAiTyping ? 1 : 0);
+                    if (_lastVisibleMessageCount != visibleCount) {
+                      _lastVisibleMessageCount = visibleCount;
+                      _scheduleScrollToLatest();
+                    }
+
                     return ListView.builder(
+                      controller: _chatScrollController,
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
                       itemCount: messages.length + (isAiTyping ? 1 : 0),
                       itemBuilder: (context, index) {

@@ -10,6 +10,8 @@ import 'package:expensetracker/data/repositories/chat_repository_impl.dart';
 import 'package:expensetracker/domain/entities/chat_message.dart';
 import 'package:expensetracker/domain/entities/chat_session.dart';
 import 'package:expensetracker/domain/entities/category.dart';
+import 'package:expensetracker/domain/entities/jar.dart';
+import 'package:expensetracker/domain/entities/ai_receipt_analysis.dart';
 import 'package:expensetracker/domain/entities/parsed_transaction_draft.dart';
 import 'package:expensetracker/domain/entities/transaction.dart';
 import 'package:expensetracker/domain/repositories/ai_repository.dart';
@@ -188,6 +190,13 @@ class ChatController extends StateNotifier<ChatState> {
     'giao duc': ['giao duc', 'hoc phi', 'khoa hoc', 'sach', 'education', 'lop hoc'],
   };
 
+  static const Map<String, List<String>> _incomeCategoryKeywordGroups = {
+    'luong': ['luong', 'salary', 'payroll', 'phieu luong'],
+    'thuong': ['thuong', 'bonus', 'hoa hong', 'commission'],
+    'hoan tien': ['hoan tien', 'refund', 'cashback'],
+    'thu nhap': ['thu nhap', 'income', 'phu cap'],
+  };
+
   Future<String?> ensureSelectedChat() async {
     final user = _ref.read(authStateProvider).value;
     if (user == null) return null;
@@ -311,6 +320,21 @@ class ChatController extends StateNotifier<ChatState> {
             ),
           );
 
+      // Handle direct management requests (update/delete transaction or jar) before generic AI reply.
+      final handledManagement = await _tryHandleManagementRequest(
+        userId: user.uid,
+        chatId: chatId,
+        messageText: messageText,
+      );
+      if (handledManagement) {
+        state = state.copyWith(
+          isSending: false,
+          isAiTyping: false,
+          clearError: true,
+        );
+        return;
+      }
+
       final draft = _ref.read(transactionMessageParserProvider).parse(messageText);
       final suggestedCategoryId = _guessCategoryId(draft);
       state = state.copyWith(isAiTyping: true);
@@ -402,12 +426,23 @@ class ChatController extends StateNotifier<ChatState> {
             financialContext: _buildFinancialContext(),
           );
 
-      var totalAmount = 0.0;
-      if (aiReceipt.items.isNotEmpty) {
-        for (final item in aiReceipt.items) {
-          totalAmount += item.amount;
-        }
-      } else {
+      final categories = await _ref.read(categoriesStreamProvider.future);
+      final hint = [
+        aiReceipt.transactionTypeHint ?? '',
+        aiReceipt.categoryHint ?? '',
+        aiReceipt.reply,
+        ...aiReceipt.items.take(3).map((e) => e.name),
+      ].join(' ');
+      final transactionType = _detectTransactionTypeFromReceipt(aiReceipt, hint);
+
+      var totalAmount = aiReceipt.totalAmount ?? aiReceipt.netAmount ?? 0;
+      if (totalAmount <= 0 && aiReceipt.items.isNotEmpty) {
+        totalAmount = _sumReceiptItemsByType(
+          items: aiReceipt.items,
+          transactionType: transactionType,
+        );
+      }
+      if (totalAmount <= 0) {
         final totalFromOcr = await _ref.read(receiptOcrServiceProvider).extractTotalFromImagePath(file.path);
         totalAmount = totalFromOcr ?? 0;
       }
@@ -420,7 +455,9 @@ class ChatController extends StateNotifier<ChatState> {
                 chatId: chatId,
                 userId: user.uid,
                 sender: ChatSender.assistant,
-                text: 'Mình chưa đọc được tổng tiền từ ảnh bill. Bạn thử ảnh rõ hơn nhé.',
+                text: transactionType == TransactionType.income
+                    ? 'Mình chưa xác định được tổng nhận cuối cùng từ phiếu lương. Bạn thử ảnh rõ hơn nhé.'
+                    : 'Mình chưa đọc được tổng tiền từ ảnh bill. Bạn thử ảnh rõ hơn nhé.',
                 createdAt: DateTime.now(),
               ),
             );
@@ -428,22 +465,19 @@ class ChatController extends StateNotifier<ChatState> {
         return;
       }
 
-      final categories = await _ref.read(categoriesStreamProvider.future);
-      final hint = [
-        aiReceipt.categoryHint ?? '',
-        aiReceipt.reply,
-        ...aiReceipt.items.take(3).map((e) => e.name),
-      ].join(' ');
-      final expenseCategoryId = _pickExpenseCategoryIdFromHint(
+      final categoryId = _pickCategoryIdFromHint(
         categories: categories,
+        type: transactionType,
         hintText: hint,
       );
 
-      if (expenseCategoryId == null) {
+      if (categoryId == null) {
         state = state.copyWith(
           isSending: false,
           isAiTyping: false,
-          errorMessage: 'Không tìm thấy danh mục chi tiêu để lưu giao dịch.',
+          errorMessage: transactionType == TransactionType.income
+              ? 'Không tìm thấy danh mục thu nhập để lưu giao dịch.'
+              : 'Không tìm thấy danh mục chi tiêu để lưu giao dịch.',
         );
         return;
       }
@@ -452,21 +486,26 @@ class ChatController extends StateNotifier<ChatState> {
       final tx = Transaction(
         id: '',
         userId: user.uid,
-        title: 'Chi tiêu từ hóa đơn',
+        title: transactionType == TransactionType.income
+            ? 'Thu nhập từ phiếu lương'
+            : 'Chi tiêu từ hóa đơn',
         amount: totalAmount,
         occurredAt: now,
         createdAt: now,
         updatedAt: now,
-        categoryId: expenseCategoryId,
-        type: TransactionType.expense,
-        note: 'Tạo tự động từ tổng tiền hóa đơn trong Chat AI',
+        categoryId: categoryId,
+        type: transactionType,
+        note: transactionType == TransactionType.income
+            ? 'Tạo tự động từ phiếu lương trong Chat AI'
+            : 'Tạo tự động từ tổng tiền hóa đơn trong Chat AI',
       );
       await _ref.read(addTransactionUseCaseProvider).call(user.uid, tx);
 
       var assistantText = aiReceipt.reply.trim();
       if (assistantText.isEmpty || assistantText.startsWith('{') || assistantText.startsWith('[')) {
         final aiPrompt =
-            'Nguoi dung da gui anh bill. Da tao 1 giao dich chi tieu, tong ${totalAmount.toStringAsFixed(0)} VND. '
+            'Nguoi dung da gui anh ${transactionType == TransactionType.income ? 'phieu luong' : 'bill'}. '
+            'Da tao 1 giao dich ${transactionType == TransactionType.income ? 'thu nhap' : 'chi tieu'}, tong ${totalAmount.toStringAsFixed(0)} VND. '
             'Hay tom tat ngan gon va dua 1 goi y tiet kiem.';
         final aiResponse = await _ref.read(generateAiReplyUseCaseProvider).call(
               message: aiPrompt,
@@ -474,7 +513,7 @@ class ChatController extends StateNotifier<ChatState> {
             );
         assistantText = aiResponse.reply;
       } else {
-        assistantText = 'Đã phân tích bill và tự tạo 1 giao dịch (tổng ${totalAmount.toStringAsFixed(0)}đ).\n\n$assistantText';
+        assistantText = 'Đã phân tích ${transactionType == TransactionType.income ? 'phiếu lương' : 'bill'} và tự tạo 1 giao dịch ${transactionType == TransactionType.income ? 'thu nhập' : 'chi tiêu'} (tổng ${totalAmount.toStringAsFixed(0)}đ).\n\n$assistantText';
       }
 
       await _ref.read(addChatMessageUseCaseProvider).call(
@@ -585,25 +624,30 @@ class ChatController extends StateNotifier<ChatState> {
     return firstSameType.isEmpty ? null : firstSameType.first.id;
   }
 
-  String? _pickExpenseCategoryIdFromHint({
+  String? _pickCategoryIdFromHint({
     required List<Category> categories,
+    required TransactionType type,
     required String hintText,
   }) {
-    final expenseCategories = categories.where((c) => c.type == TransactionType.expense).toList();
+    final filteredCategories = categories.where((c) => c.type == type).toList();
 
-    if (expenseCategories.isEmpty) {
+    if (filteredCategories.isEmpty) {
       return null;
     }
 
     final normalizedHint = _normalizeText(hintText);
     if (normalizedHint.isEmpty) {
-      return expenseCategories.first.id;
+      return filteredCategories.first.id;
     }
 
     Category? best;
     var bestScore = -1;
 
-    for (final category in expenseCategories) {
+    final keywordGroups = type == TransactionType.income
+        ? _incomeCategoryKeywordGroups
+        : _expenseCategoryKeywordGroups;
+
+    for (final category in filteredCategories) {
       final categoryNorm = _normalizeText(category.name);
       var score = 0;
 
@@ -621,7 +665,7 @@ class ChatController extends StateNotifier<ChatState> {
         }
       }
 
-      for (final group in _expenseCategoryKeywordGroups.entries) {
+      for (final group in keywordGroups.entries) {
         if (!normalizedHint.contains(group.key)) {
           continue;
         }
@@ -640,7 +684,75 @@ class ChatController extends StateNotifier<ChatState> {
       }
     }
 
-    return (best ?? expenseCategories.first).id;
+    return (best ?? filteredCategories.first).id;
+  }
+
+  TransactionType _detectTransactionTypeFromReceipt(
+    AiReceiptAnalysis aiReceipt,
+    String hint,
+  ) {
+    final hintType = (aiReceipt.transactionTypeHint ?? '').toString().toLowerCase().trim();
+    if (hintType == 'income') {
+      return TransactionType.income;
+    }
+    if (hintType == 'expense') {
+      return TransactionType.expense;
+    }
+
+    final normalizedHint = _normalizeText(hint);
+    if (normalizedHint.contains('luong') ||
+        normalizedHint.contains('salary') ||
+        normalizedHint.contains('payroll') ||
+        normalizedHint.contains('thu nhap') ||
+        normalizedHint.contains('bonus') ||
+        normalizedHint.contains('thuong')) {
+      return TransactionType.income;
+    }
+
+    return TransactionType.expense;
+  }
+
+  double _sumReceiptItemsByType({
+    required List<AiReceiptItem> items,
+    required TransactionType transactionType,
+  }) {
+    if (items.isEmpty) {
+      return 0;
+    }
+
+    if (transactionType == TransactionType.expense) {
+      var total = 0.0;
+      for (final item in items) {
+        total += item.amount;
+      }
+      return total;
+    }
+
+    var earnings = 0.0;
+    var deductions = 0.0;
+    var hasTypedItem = false;
+
+    for (final item in items) {
+      final itemType = (item.itemType ?? '').toLowerCase().trim();
+      if (itemType == 'earning') {
+        earnings += item.amount;
+        hasTypedItem = true;
+      } else if (itemType == 'deduction') {
+        deductions += item.amount;
+        hasTypedItem = true;
+      }
+    }
+
+    if (hasTypedItem) {
+      final net = earnings - deductions;
+      return net > 0 ? net : 0;
+    }
+
+    var fallback = 0.0;
+    for (final item in items) {
+      fallback += item.amount;
+    }
+    return fallback;
   }
 
   String _normalizeText(String input) {
@@ -655,6 +767,391 @@ class ChatController extends StateNotifier<ChatState> {
     text = text.replaceAll(RegExp(r'[^a-z0-9\s]'), ' ');
     text = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     return text;
+  }
+
+  Future<bool> _tryHandleManagementRequest({
+    required String userId,
+    required String chatId,
+    required String messageText,
+  }) async {
+    final normalized = _normalizeText(messageText);
+    final isDelete = normalized.contains('xoa') || normalized.contains('remove') || normalized.contains('delete');
+    final isUpdate =
+        normalized.contains('sua') || normalized.contains('chinh sua') || normalized.contains('cap nhat') || normalized.contains('doi');
+
+    if (!isDelete && !isUpdate) {
+      return false;
+    }
+
+    final askTransaction =
+        normalized.contains('giao dich') || normalized.contains('chi tieu') || normalized.contains('khoan chi');
+    final askJar = normalized.contains('hu') || normalized.contains('ho chi tieu') || normalized.contains('jar');
+
+    if (!askTransaction && !askJar) {
+      return false;
+    }
+
+    if (askTransaction) {
+      return _handleTransactionManagement(
+        userId: userId,
+        chatId: chatId,
+        messageText: messageText,
+        isDelete: isDelete,
+        isUpdate: isUpdate,
+      );
+    }
+
+    return _handleJarManagement(
+      chatId: chatId,
+      messageText: messageText,
+      isDelete: isDelete,
+      isUpdate: isUpdate,
+    );
+  }
+
+  Future<bool> _handleTransactionManagement({
+    required String userId,
+    required String chatId,
+    required String messageText,
+    required bool isDelete,
+    required bool isUpdate,
+  }) async {
+    final transactions = _ref.read(transactionsStreamProvider).value ?? const <Transaction>[];
+    if (transactions.isEmpty) {
+      await _sendAssistantMessage(
+        chatId,
+        userId,
+        'Hiện chưa có giao dịch nào để sửa hoặc xóa.',
+      );
+      return true;
+    }
+
+    final target = _pickBestTransaction(transactions, messageText);
+    if (target == null) {
+      await _sendAssistantMessage(
+        chatId,
+        userId,
+        'Mình chưa xác định được giao dịch bạn muốn thao tác. Hãy nêu rõ tên giao dịch.',
+      );
+      return true;
+    }
+
+    if (isDelete) {
+      await _ref.read(deleteTransactionUseCaseProvider).call(userId, target.id);
+      await _sendAssistantMessage(
+        chatId,
+        userId,
+        'Đã xóa giao dịch "${target.title}" (${target.amount.toStringAsFixed(0)}đ).',
+      );
+      return true;
+    }
+
+    if (isUpdate) {
+      final newAmount = _extractAmountFromText(messageText);
+      final shouldRename = _hasRenameIntent(messageText);
+      final newTitle = shouldRename ? _extractRenameValue(messageText) : null;
+
+      if (newAmount == null && (newTitle == null || newTitle.isEmpty)) {
+        await _sendAssistantMessage(
+          chatId,
+          userId,
+          'Mình đã tìm thấy giao dịch "${target.title}", nhưng bạn chưa nêu giá trị cần sửa (tên hoặc số tiền).',
+        );
+        return true;
+      }
+
+      final updated = target.copyWith(
+        title: (newTitle != null && newTitle.isNotEmpty) ? newTitle : target.title,
+        amount: newAmount ?? target.amount,
+        updatedAt: DateTime.now(),
+      );
+
+      await _ref.read(updateTransactionUseCaseProvider).call(userId, updated);
+      await _sendAssistantMessage(
+        chatId,
+        userId,
+        'Đã cập nhật giao dịch: ${updated.title} - ${updated.amount.toStringAsFixed(0)}đ.',
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  Future<bool> _handleJarManagement({
+    required String chatId,
+    required String messageText,
+    required bool isDelete,
+    required bool isUpdate,
+  }) async {
+    final jars = _ref.read(jarsStreamProvider).value ?? const <Jar>[];
+    if (jars.isEmpty) {
+      await _sendAssistantMessage(chatId, null, 'Hiện chưa có hũ chi tiêu nào để sửa hoặc xóa.');
+      return true;
+    }
+
+    final target = _pickBestJar(jars, messageText);
+    if (target == null) {
+      await _sendAssistantMessage(chatId, null, 'Mình chưa xác định được hũ bạn muốn thao tác. Hãy nêu rõ tên hũ.');
+      return true;
+    }
+
+    final jarController = _ref.read(jarControllerProvider);
+    if (jarController.uid == null) {
+      await _sendAssistantMessage(chatId, null, 'Bạn cần đăng nhập để sửa hoặc xóa hũ.');
+      return true;
+    }
+
+    if (isDelete) {
+      await jarController.deleteJar(target.id);
+      await _sendAssistantMessage(chatId, null, 'Đã xóa hũ "${target.name}".');
+      return true;
+    }
+
+    if (isUpdate) {
+      final newBudgetLimit = _extractAmountFromText(messageText);
+      final shouldRename = _hasRenameIntent(messageText);
+      final newName = shouldRename ? _extractRenameValue(messageText) : null;
+
+      if (newBudgetLimit == null && (newName == null || newName.isEmpty)) {
+        await _sendAssistantMessage(
+          chatId,
+          null,
+          'Mình đã tìm thấy hũ "${target.name}", nhưng bạn chưa nêu giá trị cần sửa (tên hoặc ngân sách).',
+        );
+        return true;
+      }
+
+      final updatedJar = Jar(
+        id: target.id,
+        name: (newName != null && newName.isNotEmpty) ? newName : target.name,
+        currentBalance: target.currentBalance,
+        categoryIds: target.categoryIds,
+        budgetLimit: newBudgetLimit ?? target.budgetLimit,
+        color: target.color,
+        icon: target.icon,
+        createdAt: target.createdAt,
+        updatedAt: DateTime.now(),
+      );
+
+      await jarController.updateJar(updatedJar);
+      await _sendAssistantMessage(
+        chatId,
+        null,
+        'Đã cập nhật hũ "${updatedJar.name}"${updatedJar.budgetLimit == null ? '' : ' (ngân sách ${updatedJar.budgetLimit!.toStringAsFixed(0)}đ)'}.' ,
+      );
+      return true;
+    }
+
+    return false;
+  }
+
+  Future<void> _sendAssistantMessage(String chatId, String? userId, String content) {
+    final uid = userId ?? _ref.read(authStateProvider).value?.uid ?? 'assistant';
+    return _ref.read(addChatMessageUseCaseProvider).call(
+          chatId: chatId,
+          message: ChatMessage(
+            id: 'a_${DateTime.now().microsecondsSinceEpoch}',
+            chatId: chatId,
+            userId: uid,
+            sender: ChatSender.assistant,
+            text: content,
+            createdAt: DateTime.now(),
+          ),
+        );
+  }
+
+  Transaction? _pickBestTransaction(List<Transaction> transactions, String messageText) {
+    final normalizedMessage = _normalizeText(messageText);
+    final quoted = _extractQuotedValue(messageText);
+
+    if (quoted != null && quoted.isNotEmpty) {
+      final normalizedQuoted = _normalizeText(quoted);
+      for (final tx in transactions) {
+        final titleNorm = _normalizeText(tx.title);
+        if (titleNorm.contains(normalizedQuoted) || normalizedQuoted.contains(titleNorm)) {
+          return tx;
+        }
+      }
+    }
+
+    Transaction? best;
+    var bestScore = -1;
+
+    for (final tx in transactions) {
+      final titleNorm = _normalizeText(tx.title);
+      var score = 0;
+      if (normalizedMessage.contains(titleNorm) && titleNorm.isNotEmpty) {
+        score += 10;
+      }
+
+      final words = titleNorm.split(' ').where((w) => w.length >= 3);
+      for (final word in words) {
+        if (normalizedMessage.contains(word)) {
+          score += 2;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = tx;
+      }
+    }
+
+    if (bestScore <= 0) {
+      final sorted = [...transactions]..sort((a, b) => b.occurredAt.compareTo(a.occurredAt));
+      return sorted.first;
+    }
+
+    return best;
+  }
+
+  Jar? _pickBestJar(List<Jar> jars, String messageText) {
+    final normalizedMessage = _normalizeText(messageText);
+    final quoted = _extractQuotedValue(messageText);
+
+    if (quoted != null && quoted.isNotEmpty) {
+      final normalizedQuoted = _normalizeText(quoted);
+      for (final jar in jars) {
+        final nameNorm = _normalizeText(jar.name);
+        if (nameNorm.contains(normalizedQuoted) || normalizedQuoted.contains(nameNorm)) {
+          return jar;
+        }
+      }
+    }
+
+    Jar? best;
+    var bestScore = -1;
+
+    for (final jar in jars) {
+      final nameNorm = _normalizeText(jar.name);
+      var score = 0;
+      if (normalizedMessage.contains(nameNorm) && nameNorm.isNotEmpty) {
+        score += 10;
+      }
+
+      final words = nameNorm.split(' ').where((w) => w.length >= 3);
+      for (final word in words) {
+        if (normalizedMessage.contains(word)) {
+          score += 2;
+        }
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = jar;
+      }
+    }
+
+    return bestScore <= 0 ? jars.first : best;
+  }
+
+  double? _extractAmountFromText(String text) {
+    final compactMillionRegex = RegExp(
+      r'(\d+)\s*(tr|trieu|tri[eệ]u|m)\s*(\d{1,3})(?!\d)',
+      caseSensitive: false,
+    );
+    final amountRegex = RegExp(
+      r'((?:\d+[\d\.,]*)(?:\s*\d{3})?)\s*(k|ngan|nghin|ngh[iìíỉĩị]n|cu|c[uủ]|tr|trieu|tri[eệ]u|m|ty|t[yỷ])?',
+      caseSensitive: false,
+    );
+
+    double? best;
+
+    for (final match in compactMillionRegex.allMatches(text.toLowerCase())) {
+      final major = double.tryParse(match.group(1) ?? '');
+      final minorDigits = match.group(3) ?? '';
+      final minor = double.tryParse('0.$minorDigits') ?? 0;
+      if (major == null) {
+        continue;
+      }
+
+      final value = (major + minor) * 1000000;
+      if (best == null || value > best) {
+        best = value;
+      }
+    }
+
+    for (final match in amountRegex.allMatches(text.toLowerCase())) {
+      final rawNumber = (match.group(1) ?? '').trim();
+      var normalized = rawNumber.replaceAll(' ', '');
+      final unit = (match.group(2) ?? '').trim();
+      final hasDot = normalized.contains('.');
+      final hasComma = normalized.contains(',');
+
+      if (hasDot && hasComma) {
+        normalized = normalized.replaceAll('.', '').replaceAll(',', '.');
+      } else if (hasComma) {
+        final firstComma = normalized.indexOf(',');
+        final decimalDigits = normalized.length - firstComma - 1;
+        if (unit.isNotEmpty && normalized.indexOf(',') == normalized.lastIndexOf(',') && decimalDigits <= 2) {
+          normalized = normalized.replaceAll(',', '.');
+        } else {
+          normalized = normalized.replaceAll(',', '');
+        }
+      } else {
+        final firstDot = normalized.indexOf('.');
+        final decimalDigits = normalized.length - firstDot - 1;
+        if (unit.isNotEmpty && normalized.indexOf('.') == normalized.lastIndexOf('.') && decimalDigits <= 2) {
+          // Keep decimal separator for forms like 3.4tr.
+        } else {
+          normalized = normalized.replaceAll('.', '');
+        }
+      }
+
+      final base = double.tryParse(normalized);
+      if (base == null || base <= 0) {
+        continue;
+      }
+
+      var value = base;
+      if (RegExp(r'^(k|ngan|nghin|ngh[iìíỉĩị]n|cu|c[uủ])$').hasMatch(unit)) {
+        value *= 1000;
+      } else if (RegExp(r'^(tr|trieu|tri[eệ]u|m)$').hasMatch(unit)) {
+        value *= 1000000;
+      } else if (RegExp(r'^(ty|t[yỷ])$').hasMatch(unit)) {
+        value *= 1000000000;
+      }
+
+      if (best == null || value > best) {
+        best = value;
+      }
+    }
+
+    return best;
+  }
+
+  String? _extractQuotedValue(String text) {
+    final match = RegExp(r'''["']([^"']+)["']''').firstMatch(text);
+    return match?.group(1)?.trim();
+  }
+
+  String? _extractRenameValue(String text) {
+    final match = RegExp(r'(?:thanh|thành|la|là)\s+(.+)$', caseSensitive: false).firstMatch(text.trim());
+    if (match == null) {
+      return null;
+    }
+
+    final value = match.group(1)?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+
+    final cleaned = value.replaceAll(RegExp(r'[\.,;:!]+$'), '').trim();
+    if (cleaned.isEmpty) {
+      return null;
+    }
+
+    return cleaned;
+  }
+
+  bool _hasRenameIntent(String text) {
+    final normalized = _normalizeText(text);
+    return normalized.contains('doi ten') ||
+        normalized.contains('sua ten') ||
+        normalized.contains('cap nhat ten') ||
+        normalized.contains('ten moi') ||
+        normalized.contains('rename');
   }
 }
 

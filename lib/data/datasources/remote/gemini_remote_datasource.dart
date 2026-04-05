@@ -20,9 +20,11 @@ Duoi day la van ban OCR lay tu hoa don. Hay phan tich va tra ve JSON hop le DUY 
 {
   "summary": "string",
   "totalAmount": 12345,
+  "netAmount": 12345,
+  "transactionTypeHint": "income|expense",
   "categoryHint": "an uong|di chuyen|mua sam|hoa don|suc khoe|giao duc|khac",
   "items": [
-    {"name": "string", "amount": 12345}
+    {"name": "string", "amount": 12345, "itemType": "earning|deduction|other"}
   ]
 }
 
@@ -30,6 +32,8 @@ Quy tac:
 - Chi tra ve JSON, khong markdown, khong giai thich.
 - totalAmount la tong thanh toan cuoi cung can tra (VND chi so).
 - Neu khong chac chan totalAmount thi de null.
+- netAmount la so tien NHAN CUOI CUNG. Neu transactionTypeHint=income va khong co dong tong nhan, tu tinh: tong earning - tong deduction.
+- transactionTypeHint: income neu day la phieu luong/thu nhap/hoa hong/hoan tien; expense neu la hoa don chi tieu.
 - categoryHint la nhom chi tieu phu hop nhat, uu tien gia tri ngan gon khong dau.
 - items co the rong neu OCR khong ro.
 
@@ -82,9 +86,11 @@ Hay phan tich anh bill va tra ve JSON hop le DUY NHAT theo dung schema:
 {
   "summary": "string",
   "totalAmount": 12345,
+  "netAmount": 12345,
+  "transactionTypeHint": "income|expense",
   "categoryHint": "an uong|di chuyen|mua sam|hoa don|suc khoe|giao duc|khac",
   "items": [
-    {"name": "string", "amount": 12345}
+    {"name": "string", "amount": 12345, "itemType": "earning|deduction|other"}
   ]
 }
 
@@ -93,7 +99,10 @@ Quy tac:
 - "items" chi gom cac dong mua hang co ten + don gia.
 - Bo qua tong tien, VAT, discount, service charge, thong tin cua hang, thoi gian.
 - totalAmount la tong thanh toan cuoi cung (neu xac dinh duoc), khong thi de null.
+- netAmount la so tien NHAN CUOI CUNG. Neu transactionTypeHint=income va khong co dong tong nhan, tu tinh: tong earning - tong deduction.
+- transactionTypeHint: income neu day la phieu luong/thu nhap/hoa hong/hoan tien; expense neu la hoa don chi tieu.
 - amount la so VND (chi so, khong dau phay).
+- itemType: earning cho khoan cong, deduction cho khoan tru, other neu khong ro.
 - categoryHint la nhom chi tieu phu hop nhat, uu tien gia tri ngan gon khong dau.
 - summary toi da 2 cau, ngan gon, huu ich.
 

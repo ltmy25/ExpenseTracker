@@ -69,10 +69,15 @@ class AiRepositoryImpl implements AiRepository {
 
       final summary = (decoded['summary'] as String?)?.trim() ?? '';
       final totalValue = decoded['totalAmount'];
-      final totalAmount = totalValue is num
+        final parsedTotalAmount = totalValue is num
           ? totalValue.toDouble()
           : double.tryParse((totalValue ?? '').toString());
-        final categoryHint = (decoded['categoryHint'] as String?)?.trim();
+        final netValue = decoded['netAmount'];
+        final parsedNetAmount = netValue is num
+          ? netValue.toDouble()
+          : double.tryParse((netValue ?? '').toString());
+      final categoryHint = (decoded['categoryHint'] as String?)?.trim();
+      final transactionTypeHint = (decoded['transactionTypeHint'] as String?)?.trim();
       final rawItems = decoded['items'];
       final items = <AiReceiptItem>[];
 
@@ -84,24 +89,84 @@ class AiRepositoryImpl implements AiRepository {
           final amount = amountValue is num
               ? amountValue.toDouble()
               : double.tryParse(amountValue.toString());
+          final itemType = (entry['itemType'] as String?)?.trim();
 
           if (name.isEmpty || amount == null || amount <= 0) {
             continue;
           }
 
-          items.add(AiReceiptItem(name: name, amount: amount));
+          items.add(AiReceiptItem(name: name, amount: amount, itemType: itemType));
         }
       }
+
+      final totalAmount = _resolveFinalTotalAmount(
+        parsedTotalAmount: parsedTotalAmount,
+        parsedNetAmount: parsedNetAmount,
+        transactionTypeHint: transactionTypeHint,
+        items: items,
+      );
 
       return AiReceiptAnalysis(
         reply: summary,
         totalAmount: totalAmount,
+        netAmount: parsedNetAmount,
         categoryHint: categoryHint,
+        transactionTypeHint: transactionTypeHint,
         items: items,
       );
     } catch (_) {
       return AiReceiptAnalysis(reply: raw, items: const <AiReceiptItem>[]);
     }
+  }
+
+  double? _resolveFinalTotalAmount({
+    required double? parsedTotalAmount,
+    required double? parsedNetAmount,
+    required String? transactionTypeHint,
+    required List<AiReceiptItem> items,
+  }) {
+    if (parsedNetAmount != null && parsedNetAmount > 0) {
+      return parsedNetAmount;
+    }
+
+    if (parsedTotalAmount != null && parsedTotalAmount > 0) {
+      return parsedTotalAmount;
+    }
+
+    final typeHint = (transactionTypeHint ?? '').toLowerCase();
+    if (typeHint != 'income') {
+      return null;
+    }
+
+    var earnings = 0.0;
+    var deductions = 0.0;
+    var hasTypedItem = false;
+
+    for (final item in items) {
+      final itemType = (item.itemType ?? '').toLowerCase();
+      if (itemType == 'earning') {
+        earnings += item.amount;
+        hasTypedItem = true;
+      } else if (itemType == 'deduction') {
+        deductions += item.amount;
+        hasTypedItem = true;
+      }
+    }
+
+    if (hasTypedItem) {
+      final net = earnings - deductions;
+      return net > 0 ? net : null;
+    }
+
+    if (items.isEmpty) {
+      return null;
+    }
+
+    var fallback = 0.0;
+    for (final item in items) {
+      fallback += item.amount;
+    }
+    return fallback > 0 ? fallback : null;
   }
 
   String _extractJsonPayload(String raw) {
